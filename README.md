@@ -65,6 +65,30 @@ Known sold devices can send telemetry before claim as long as they use the corre
 4. `GET /devices` to populate the dashboard
 5. `POST /devices/{deviceId}/commands` for manual relay toggles
 
+## Model endpoints
+
+The backend now also exposes model-analysis endpoints backed by the Python ML layer.
+
+- `GET /model/sample-graph`
+- `POST /model/simulate-network`
+- `POST /model/compare-network`
+- `POST /model/analyze-graph`
+- `GET /model/test-ui`
+
+Quick way to test in the browser:
+
+1. Start the backend:
+
+```bash
+uvicorn app.main:app --reload --app-dir apps/api
+```
+
+2. Open:
+
+`http://127.0.0.1:8000/model/test-ui`
+
+That page loads a sample graph and lets you call `POST /model/analyze-graph` from a basic frontend.
+
 ## Example frontend payloads
 
 Register:

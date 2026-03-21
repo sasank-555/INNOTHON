@@ -1,0 +1,287 @@
+{
+  "network": {
+    "name": "NITW",
+    "f_hz": 50.0,
+    "sn_mva": 1.0
+  },
+
+  "buses": [
+    {
+      "id": "bus_slack",
+      "name": "Main Grid Bus",
+      "vn_kv": 20.0,
+      "type": "b"
+    },
+    {
+      "id": "bus_b1",
+      "name": "Bus Building 1",
+      "vn_kv": 20.0,
+      "type": "b"
+    },
+    {
+      "id": "bus_b2",
+      "name": "Bus Building 2",
+      "vn_kv": 20.0,
+      "type": "b"
+    },
+    {
+      "id": "bus_b3",
+      "name": "Bus Building 3",
+      "vn_kv": 20.0,
+      "type": "b"
+    }
+  ],
+
+  "external_grids": [
+    {
+      "id": "grid_main",
+      "bus_id": "bus_slack",
+      "vm_pu": 1.0,
+      "name": "Main Grid"
+    }
+  ],
+
+  "loads": [
+    {
+      "id": "load_chem_dept",
+      "name": "CHEM DEPT",
+      "bus_id": "bus_b1",
+      "p_mw": 0.5,
+      "q_mvar": 0.2,
+      "lat": 17.985566361807546,
+      "long": 79.53388386718099
+    },
+    {
+      "id": "load_lh",
+      "name": "LH",
+      "bus_id": "bus_b2",
+      "p_mw": 0.4,
+      "q_mvar": 0.15,
+      "lat": 17.985765350695704,
+      "long": 79.53161471839925
+    },
+    {
+      "id": "load_siemens",
+      "name": "Siemens Centre of Excellence",
+      "bus_id": "bus_b3",
+      "p_mw": 0.6,
+      "q_mvar": 0.25,
+      "lat": 17.982723791958378,
+      "long": 79.53290875258377
+    },
+    {
+      "id": "load_ped",
+      "name": "PED",
+      "bus_id": "bus_b4",
+      "p_mw": 0.45,
+      "q_mvar": 0.18,
+      "lat": 17.9817090323481,
+      "long": 79.53247172855703
+    },
+    {
+      "id": "load_dispensary",
+      "name": "DISPENSARY",
+      "bus_id": "bus_b5",
+      "p_mw": 0.3,
+      "q_mvar": 0.1,
+      "lat": 17.981158442071962,
+      "long": 79.52957737723754
+    },
+    {
+      "id": "load_ifc_a",
+      "name": "IFC A",
+      "bus_id": "bus_b6",
+      "p_mw": 0.5,
+      "q_mvar": 0.2,
+      "lat": 17.983706566261628,
+      "long": 79.53435269736654
+    },
+    {
+      "id": "load_mme",
+      "name": "MME",
+      "bus_id": "bus_b7",
+      "p_mw": 0.55,
+      "q_mvar": 0.22,
+      "lat": 17.984682554681754,
+      "long": 79.53394928246638
+    },
+    {
+      "id": "load_mfc",
+      "name": "mFC",
+      "bus_id": "bus_b8",
+      "p_mw": 0.35,
+      "q_mvar": 0.12,
+      "lat": 17.984252512451206,
+      "long": 79.53265697091757
+    },
+    {
+      "id": "load_ccpd",
+      "name": "CCPD",
+      "bus_id": "bus_b9",
+      "p_mw": 0.4,
+      "q_mvar": 0.15,
+      "lat": 17.984021500243745,
+      "long": 79.53334288220447
+    },
+    {
+      "id": "load_lib",
+      "name": "LIB",
+      "bus_id": "bus_b10",
+      "p_mw": 0.6,
+      "q_mvar": 0.25,
+      "lat": 17.98445825915247,
+      "long": 79.53009085887841
+    },
+    {
+      "id": "load_alc",
+      "name": "ALC",
+      "bus_id": "bus_b11",
+      "p_mw": 0.3,
+      "q_mvar": 0.1,
+      "lat": 17.98466149435941,
+      "long": 79.5292788921786
+    },
+    {
+      "id": "load_nescafe",
+      "name": "NESCAFE",
+      "bus_id": "bus_b12",
+      "p_mw": 0.25,
+      "q_mvar": 0.08,
+      "lat": 17.98423626350315,
+      "long": 79.52976212740914
+    },
+    {
+      "id": "load_taaza",
+      "name": "TAAZA",
+      "bus_id": "bus_b13",
+      "p_mw": 0.2,
+      "q_mvar": 0.07,
+      "lat": 17.981668404452318,
+      "long": 79.52942723582078
+    },
+    {
+      "id": "load_hostel_life",
+      "name": "HOSTEL LIFE",
+      "bus_id": "bus_b14",
+      "p_mw": 0.7,
+      "q_mvar": 0.3,
+      "lat": 17.98001778283484,
+      "long": 79.53024696203269
+    }
+  ],
+
+  "sensor_links": [
+    {
+      "sensor_id": "sensor_bus_slack_voltage",
+      "element_type": "bus",
+      "element_id": "bus_slack",
+      "measurement": "vm_pu"
+    },
+
+    {
+      "sensor_id": "sensor_line_1_loading",
+      "element_type": "line",
+      "element_id": "line_1",
+      "measurement": "loading_percent"
+    },
+
+    {
+      "sensor_id": "sensor_line_2_loading",
+      "element_type": "line",
+      "element_id": "line_2",
+      "measurement": "loading_percent"
+    },
+
+    {
+      "sensor_id": "sensor_line_3_loading",
+      "element_type": "line",
+      "element_id": "line_3",
+      "measurement": "loading_percent"
+    },
+
+    {
+      "sensor_id": "sensor_load_chem_dept",
+      "element_type": "load",
+      "element_id": "load_chem_dept",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_lh",
+      "element_type": "load",
+      "element_id": "load_lh",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_siemens",
+      "element_type": "load",
+      "element_id": "load_siemens",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_ped",
+      "element_type": "load",
+      "element_id": "load_ped",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_dispensary",
+      "element_type": "load",
+      "element_id": "load_dispensary",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_ifc_a",
+      "element_type": "load",
+      "element_id": "load_ifc_a",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_mme",
+      "element_type": "load",
+      "element_id": "load_mme",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_mfc",
+      "element_type": "load",
+      "element_id": "load_mfc",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_ccpd",
+      "element_type": "load",
+      "element_id": "load_ccpd",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_lib",
+      "element_type": "load",
+      "element_id": "load_lib",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_alc",
+      "element_type": "load",
+      "element_id": "load_alc",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_nescafe",
+      "element_type": "load",
+      "element_id": "load_nescafe",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_taaza",
+      "element_type": "load",
+      "element_id": "load_taaza",
+      "measurement": "p_mw"
+    },
+    {
+      "sensor_id": "sensor_load_hostel_life",
+      "element_type": "load",
+      "element_id": "load_hostel_life",
+      "measurement": "p_mw"
+    }
+  ]
+}

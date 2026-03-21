@@ -105,6 +105,26 @@ class ReadingResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ModelCompareRequest(BaseModel):
+    network_payload: dict[str, Any]
+    readings_payload: dict[str, Any]
+
+
+class ModelGraphAnalyzeRequest(BaseModel):
+    snapshot: dict[str, Any]
+
+
+class ModelServiceResponse(BaseModel):
+    status: str
+    network_payload: dict[str, Any] | None = None
+    readings_payload: dict[str, Any] | None = None
+    comparison: dict[str, Any] | None = None
+    analysis: dict[str, Any] | None = None
+    network_name: str | None = None
+    converged: bool | None = None
+    snapshot: dict[str, Any] | None = None
+
+
 UserResponse.model_rebuild()
 AuthResponse.model_rebuild()
 ReadingResponse.model_rebuild()
