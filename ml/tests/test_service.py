@@ -54,6 +54,13 @@ class SimulateNetworkPayloadTests(unittest.TestCase):
         }
         network_payload = {
             **NETWORK_PAYLOAD,
+            "external_grids": [
+                {
+                    "id": "grid_1",
+                    "bus_id": "bus_1",
+                    "name": "Grid",
+                }
+            ],
             "sensor_links": [
                 {
                     "sensor_id": "sensor_1",
@@ -69,6 +76,85 @@ class SimulateNetworkPayloadTests(unittest.TestCase):
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["comparisons"][0]["sensor_id"], "sensor_1")
         self.assertEqual(response["comparisons"][0]["status"], "deviation")
+
+    @patch("innothon_sim.service.run_simulation")
+    def test_compare_network_payload_uses_reasonable_tolerance_for_power(self, mock_run_simulation) -> None:
+        mock_run_simulation.return_value.snapshot = {
+            **SIMULATION_SNAPSHOT,
+            "loads": {"load_1": {"p_mw": 0.2}},
+        }
+        network_payload = {
+            **NETWORK_PAYLOAD,
+            "external_grids": [
+                {
+                    "id": "grid_1",
+                    "bus_id": "bus_1",
+                    "name": "Grid",
+                }
+            ],
+            "loads": [
+                {
+                    "id": "load_1",
+                    "bus_id": "bus_1",
+                    "p_mw": 0.2,
+                    "q_mvar": 0.05,
+                }
+            ],
+            "sensor_links": [
+                {
+                    "sensor_id": "sensor_load_1",
+                    "element_type": "load",
+                    "element_id": "load_1",
+                    "measurement": "p_mw",
+                }
+            ],
+        }
+
+        response = compare_network_payload(network_payload, {"sensor_load_1": 0.204})
+
+        self.assertEqual(response["comparisons"][0]["status"], "match")
+
+    @patch("innothon_sim.service.run_simulation")
+    def test_compare_network_payload_flags_disconnected_loads_as_topology_issue(self, mock_run_simulation) -> None:
+        mock_run_simulation.return_value.snapshot = {
+            **SIMULATION_SNAPSHOT,
+            "loads": {"load_1": {"p_mw": 0.0}},
+        }
+        network_payload = {
+            **NETWORK_PAYLOAD,
+            "buses": [
+                {"id": "bus_1", "vn_kv": 11.0},
+                {"id": "bus_2", "vn_kv": 11.0},
+            ],
+            "external_grids": [
+                {
+                    "id": "grid_1",
+                    "bus_id": "bus_1",
+                    "name": "Grid",
+                }
+            ],
+            "loads": [
+                {
+                    "id": "load_1",
+                    "bus_id": "bus_2",
+                    "p_mw": 0.3,
+                    "q_mvar": 0.1,
+                }
+            ],
+            "sensor_links": [
+                {
+                    "sensor_id": "sensor_load_1",
+                    "element_type": "load",
+                    "element_id": "load_1",
+                    "measurement": "p_mw",
+                }
+            ],
+        }
+
+        response = compare_network_payload(network_payload, {"sensor_load_1": 0.35})
+
+        self.assertEqual(response["comparisons"][0]["status"], "topology_issue")
+        self.assertIsNone(response["comparisons"][0]["expected"])
 
 
 if __name__ == "__main__":

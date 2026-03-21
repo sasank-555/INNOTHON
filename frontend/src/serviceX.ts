@@ -1,108 +1,192 @@
-import type { Edge } from '@xyflow/react'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
-import type {
-  FrontendGraphState,
-  GraphEdgeRecord,
-  GraphNodeRecord,
-  PowerFlowNode,
-  ServiceSnapshot,
-  SensorReadingRecord,
-} from './types'
-
-const SERVICE_X_BASE_URL =
-  import.meta.env.VITE_SERVICE_X_URL ?? 'http://127.0.0.1:8000'
-
-export async function fetchFrontendGraphState(): Promise<FrontendGraphState> {
-  const response = await fetch(`${SERVICE_X_BASE_URL}/service-x/state`)
-  if (!response.ok) {
-    throw new Error('Failed to fetch Service X state')
+type AuthPayload = {
+  access_token: string
+  token_type: string
+  user: {
+    id: string
+    email: string
   }
-  return response.json() as Promise<FrontendGraphState>
 }
 
-export async function updateServiceGraph(
-  networkId: string,
-  graph: ServiceSnapshot['graph'],
-): Promise<FrontendGraphState> {
-  const response = await fetch(`${SERVICE_X_BASE_URL}/service-x/graph`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      networkId,
-      graph,
-    }),
+export type DeviceRecord = {
+  id: string
+  hardwareId: string
+  deviceModel: string
+  displayName?: string
+  networkName?: string
+  nodeId?: string
+  nodeKind?: string
+  latitude?: number
+  longitude?: number
+  relayCount: number
+  firmwareVersion?: string
+  claimStatus: string
+  claimCount: number
+  sensorManifest: Array<{
+    sensorId: string
+    sensorType: string
+    unit: string
+  }>
+  deviceAuthToken?: string
+  latestReadings: Array<{
+    sensorId: string
+    sensorType: string
+    value: number
+    unit: string
+    relayState?: string | null
+    espTimestamp?: string | null
+    serverReceivedAt: string
+    metadata: Record<string, unknown>
+  }>
+}
+
+export type NitwReference = {
+  network: {
+    name: string
+    f_hz: number
+    sn_mva: number
+  }
+  buses: Array<{
+    id: string
+    name?: string
+    vn_kv?: number
+    type?: string
+  }>
+  external_grids?: Array<Record<string, unknown>>
+  lines?: Array<Record<string, unknown>>
+  loads: Array<{
+    id: string
+    name: string
+    bus_id: string
+    p_mw: number
+    q_mvar: number
+    lat: number
+    long: number
+  }>
+  sensor_links: Array<{
+    sensor_id: string
+    element_type: string
+    element_id: string
+    measurement: string
+  }>
+}
+
+export type NetworkBundle = {
+  status: string
+  network_name: string
+  payload: NitwReference
+  collections: Record<string, Array<Record<string, unknown>>>
+  component_counts: Record<string, number>
+}
+
+export type CompareResponse = {
+  status: string
+  comparisons?: Array<{
+    sensor_id: string
+    element_type: string
+    element_id: string
+    measurement: string
+    expected: number | null
+    actual: number | null
+    delta: number | null
+    absolute_delta: number | null
+    status: string
+  }>
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Content-Type') && init?.body) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
   })
+
   if (!response.ok) {
-    throw new Error(`Failed to update Service X graph for ${networkId}`)
+    let message = `Request failed with status ${response.status}`
+    try {
+      const payload = (await response.json()) as { detail?: string }
+      if (payload.detail) {
+        message = payload.detail
+      }
+    } catch {
+      // ignore parse failure and keep default message
+    }
+    throw new Error(message)
   }
-  return response.json() as Promise<FrontendGraphState>
+
+  return response.json() as Promise<T>
 }
 
-export function snapshotToFlow(snapshot: ServiceSnapshot): {
-  nodes: PowerFlowNode[]
-  edges: Edge[]
-  sensorReadings: SensorReadingRecord[]
-} {
-  return {
-    nodes: snapshot.graph.nodes.map((node) => ({
-      id: node.id,
-      type: 'powerNode',
-      position: {
-        x: node.x,
-        y: node.y,
-      },
-      data: {
-        id: node.id,
-        label: node.label,
-        kind: node.type,
-        nominalPowerKw: node.nominalPowerKw,
-        active: node.active,
-        severity: 'normal',
-        message: 'Awaiting model run',
-      },
-    })),
-    edges: snapshot.graph.edges.map((edge) => ({
-      ...edge,
-      animated: true,
-    })),
-    sensorReadings: snapshot.sensorReadings,
-  }
+export function registerUser(email: string, password: string): Promise<AuthPayload> {
+  return apiFetch<AuthPayload>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
 }
 
-export function flowToServiceSnapshot(
-  networkId: string,
-  networkName: string,
-  nodes: PowerFlowNode[],
-  edges: Edge[],
-  sensorReadings: SensorReadingRecord[],
-): ServiceSnapshot {
-  const graphNodes: GraphNodeRecord[] = nodes.map((node) => ({
-    id: node.id,
-    type: node.data.kind,
-    label: node.data.label,
-    x: Math.round(node.position.x),
-    y: Math.round(node.position.y),
-    nominalPowerKw: node.data.nominalPowerKw,
-    active: node.data.active,
-  }))
+export function loginUser(email: string, password: string): Promise<AuthPayload> {
+  return apiFetch<AuthPayload>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  })
+}
 
-  const graphEdges: GraphEdgeRecord[] = edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-  }))
+export function fetchInventory(token: string): Promise<DeviceRecord[]> {
+  return apiFetch<DeviceRecord[]>('/devices/inventory', undefined, token)
+}
 
-  return {
-    network: {
-      id: networkId,
-      name: networkName,
+export function fetchClaimedDevices(token: string): Promise<DeviceRecord[]> {
+  return apiFetch<DeviceRecord[]>('/devices', undefined, token)
+}
+
+export function claimDevice(token: string, hardwareId: string, manufacturerPassword: string): Promise<DeviceRecord> {
+  return apiFetch<DeviceRecord>(
+    '/devices/claim',
+    {
+      method: 'POST',
+      body: JSON.stringify({ hardwareId, manufacturerPassword }),
     },
-    graph: {
-      nodes: graphNodes,
-      edges: graphEdges,
+    token,
+  )
+}
+
+export function fetchNitwReference(token: string): Promise<NitwReference> {
+  return apiFetch<NitwReference>('/model/nitw-reference', undefined, token)
+}
+
+export function compareNitwNetwork(
+  token: string,
+  networkPayload: Record<string, unknown>,
+  readingsPayload: Record<string, number>,
+): Promise<CompareResponse> {
+  return apiFetch<CompareResponse>(
+    '/model/compare-network',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        network_payload: networkPayload,
+        readings_payload: readingsPayload,
+      }),
     },
-    sensorReadings,
-  }
+    token,
+  )
+}
+
+export function syncNetwork(token: string, networkPayload: NitwReference): Promise<NetworkBundle> {
+  return apiFetch<NetworkBundle>(
+    '/networks/sync',
+    {
+      method: 'POST',
+      body: JSON.stringify(networkPayload),
+    },
+    token,
+  )
 }

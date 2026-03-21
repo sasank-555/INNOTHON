@@ -1,13 +1,20 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import initialize_database
+from app.database import (
+    generate_alerts_from_comparisons,
+    get_network_bundle,
+    get_network_payload,
+    initialize_database,
+    latest_network_sensor_readings,
+    sync_network_payload,
+    upsert_network_component,
+)
 from app.dependencies import get_current_user
 from app.model_runtime import (
     analyze_model_graph,
@@ -36,6 +43,7 @@ from app.services import (
     create_device_command,
     get_device_summary,
     ingest_telemetry,
+    list_device_inventory,
     list_user_devices,
     login_user,
     register_user,
@@ -105,6 +113,11 @@ def list_devices(current_user: dict = Depends(get_current_user)) -> list[DeviceS
     return list_user_devices(current_user["id"])
 
 
+@app.get("/devices/inventory", response_model=list[DeviceSummary])
+def get_device_inventory(current_user: dict = Depends(get_current_user)) -> list[DeviceSummary]:
+    return list_device_inventory()
+
+
 @app.get("/devices/{device_id}", response_model=DeviceSummary)
 def get_device(device_id: str, current_user: dict = Depends(get_current_user)) -> DeviceSummary:
     return get_device_summary(device_id, current_user["id"], include_token=True)
@@ -155,6 +168,65 @@ def analyze_graph(payload: ModelGraphAnalyzeRequest) -> ModelServiceResponse:
 @app.get("/model/sample-graph")
 def get_model_sample_graph() -> dict:
     return sample_graph_snapshot()
+
+
+@app.get("/model/nitw-reference")
+def get_nitw_reference() -> dict:
+    return get_network_payload("NITW") or {}
+
+
+@app.get("/networks/{network_name}")
+def get_network(network_name: str) -> dict:
+    bundle = get_network_bundle(network_name)
+    if bundle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found.")
+    return bundle
+
+
+@app.get("/networks/{network_name}/collections")
+def get_network_collections(network_name: str) -> dict:
+    bundle = get_network_bundle(network_name)
+    if bundle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found.")
+    return {
+        "status": "ok",
+        "network_name": network_name,
+        "collections": bundle["collections"],
+        "component_counts": bundle["component_counts"],
+    }
+
+
+@app.post("/networks/sync")
+def sync_network(payload: dict) -> dict:
+    try:
+        return sync_network_payload(payload)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+@app.post("/networks/{network_name}/components/{section_name}")
+def upsert_network_section_component(network_name: str, section_name: str, payload: dict) -> dict:
+    try:
+        return upsert_network_component(network_name, section_name, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+@app.get("/networks/{network_name}/compare-latest")
+def compare_network_with_latest_readings(network_name: str) -> dict:
+    payload = get_network_payload(network_name)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found.")
+
+    readings_payload = latest_network_sensor_readings(network_name)
+    comparison = compare_model_network(payload, readings_payload)
+    alerts = generate_alerts_from_comparisons(comparison.get("comparisons", []))
+    return {
+        **comparison,
+        "readings_payload": readings_payload,
+        "alerts": alerts["alerts"],
+        "alerts_summary": alerts["summary"],
+    }
 
 
 @app.get("/model/test-ui", response_class=HTMLResponse)

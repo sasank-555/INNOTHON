@@ -11,7 +11,10 @@ class Settings:
     jwt_algorithm: str = "HS256"
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
-        for origin in os.getenv("INNOTHON_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+        for origin in os.getenv(
+            "INNOTHON_CORS_ORIGINS",
+            "*",
+        ).split(",")
         if origin.strip()
     )
     mongodb_uri: str = os.getenv("INNOTHON_MONGODB_URI", "mongodb+srv://sarangkulkarni:untu2005@cluster0.ukspo.mongodb.net/")
