@@ -155,6 +155,7 @@ def simulate_network(payload: dict) -> ModelServiceResponse:
 
 @app.post("/model/compare-network", response_model=ModelServiceResponse)
 def compare_network(payload: ModelCompareRequest) -> ModelServiceResponse:
+    print("dbg1", payload.network_payload)
     return ModelServiceResponse(
         **compare_model_network(payload.network_payload, payload.readings_payload)
     )
