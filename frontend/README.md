@@ -14,7 +14,8 @@ This is a simple React + React Flow prototype for building and inspecting a powe
 - color nodes based on high, low, normal, or off power state
 - show problem cards with two actions:
   - `Turn off`
-  - `No, it's fine`
+  - `No, it's fine lk,kp`
+  
 
 ## Current architecture
 
