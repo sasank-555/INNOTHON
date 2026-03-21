@@ -1,0 +1,5 @@
+{
+  "sensor_bus_slack_voltage": 1.0,
+  "sensor_load_line_loading": 45.0,
+  "sensor_main_load_p_mw": 0.61
+}

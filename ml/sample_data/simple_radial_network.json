@@ -1,0 +1,68 @@
+{
+  "network": {
+    "name": "simple-radial-demo",
+    "f_hz": 50.0,
+    "sn_mva": 1.0
+  },
+  "buses": [
+    {
+      "id": "bus_slack",
+      "name": "Slack Bus",
+      "vn_kv": 20.0,
+      "type": "b"
+    },
+    {
+      "id": "bus_load",
+      "name": "Load Bus",
+      "vn_kv": 20.0,
+      "type": "b"
+    }
+  ],
+  "external_grids": [
+    {
+      "id": "grid_main",
+      "bus_id": "bus_slack",
+      "vm_pu": 1.0,
+      "name": "Grid"
+    }
+  ],
+  "lines": [
+    {
+      "id": "line_1",
+      "name": "Slack to Load",
+      "from_bus_id": "bus_slack",
+      "to_bus_id": "bus_load",
+      "length_km": 1.0,
+      "std_type": "NA2XS2Y 1x95 RM/25 12/20 kV"
+    }
+  ],
+  "loads": [
+    {
+      "id": "load_1",
+      "name": "Main Load",
+      "bus_id": "bus_load",
+      "p_mw": 0.6,
+      "q_mvar": 0.2
+    }
+  ],
+  "sensor_links": [
+    {
+      "sensor_id": "sensor_bus_slack_voltage",
+      "element_type": "bus",
+      "element_id": "bus_slack",
+      "measurement": "vm_pu"
+    },
+    {
+      "sensor_id": "sensor_load_line_loading",
+      "element_type": "line",
+      "element_id": "line_1",
+      "measurement": "loading_percent"
+    },
+    {
+      "sensor_id": "sensor_main_load_p_mw",
+      "element_type": "load",
+      "element_id": "load_1",
+      "measurement": "p_mw"
+    }
+  ]
+}
