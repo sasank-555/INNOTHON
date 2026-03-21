@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 
 from app.database import (
+    claims_collection,
     device_commands_collection,
     parse_object_id,
     sensor_readings_collection,
@@ -54,8 +55,6 @@ def claim_device(user_id: str, hardware_id: str, manufacturer_password: str) -> 
     device = devices.find_one({"hardware_id": hardware_id})
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
-    if device["claim_status"] == "claimed" and device.get("sold_to_user_id") != user_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device already claimed.")
     if not verify_password(manufacturer_password, device["manufacturer_password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -63,12 +62,22 @@ def claim_device(user_id: str, hardware_id: str, manufacturer_password: str) -> 
         )
 
     device_token = device.get("device_auth_token") or issue_device_token()
+    claims_collection().update_one(
+        {"user_id": user_id, "device_id": str(device["_id"])},
+        {
+            "$setOnInsert": {
+                "user_id": user_id,
+                "device_id": str(device["_id"]),
+                "claimed_at": utc_now(),
+            }
+        },
+        upsert=True,
+    )
     devices.update_one(
         {"_id": device["_id"]},
         {
             "$set": {
                 "claim_status": "claimed",
-                "sold_to_user_id": user_id,
                 "device_auth_token": device_token,
                 "updated_at": utc_now(),
             }
@@ -161,8 +170,17 @@ def ingest_telemetry(
 
 
 def list_user_devices(user_id: str) -> list[DeviceSummary]:
-    device_rows = sold_devices_collection().find({"sold_to_user_id": user_id}).sort("hardware_id", 1)
+    claims = list(claims_collection().find({"user_id": user_id}))
+    device_ids = [parse_object_id(claim["device_id"]) for claim in claims]
+    if not device_ids:
+        return []
+    device_rows = sold_devices_collection().find({"_id": {"$in": device_ids}}).sort("hardware_id", 1)
     return [get_device_summary(str(row["_id"]), user_id, include_token=True) for row in device_rows]
+
+
+def list_device_inventory() -> list[DeviceSummary]:
+    device_rows = sold_devices_collection().find().sort("hardware_id", 1)
+    return [build_device_summary(row, include_token=False) for row in device_rows]
 
 
 def get_device_summary(device_id: str, user_id: str, include_token: bool = False) -> DeviceSummary:
@@ -188,24 +206,40 @@ def get_device_summary(device_id: str, user_id: str, include_token: bool = False
         )
         for row in reading_rows
     ]
+    return build_device_summary(device, include_token=include_token, latest_readings=latest_readings)
+
+
+def build_device_summary(
+    device: dict,
+    *,
+    include_token: bool,
+    latest_readings: list[ReadingResponse] | None = None,
+) -> DeviceSummary:
+    location = device.get("location") or {}
+    claim_count = claims_collection().count_documents({"device_id": str(device["_id"])})
     return DeviceSummary(
         id=str(device["_id"]),
         hardwareId=device["hardware_id"],
         deviceModel=device["device_model"],
+        displayName=device.get("display_name"),
+        networkName=device.get("network_name"),
+        nodeId=device.get("node_id"),
+        nodeKind=device.get("node_kind"),
+        latitude=location.get("latitude"),
+        longitude=location.get("longitude"),
         relayCount=device["relay_count"],
         firmwareVersion=device.get("firmware_version"),
-        claimStatus=device["claim_status"],
+        claimStatus="claimed" if claim_count > 0 else "unclaimed",
+        claimCount=claim_count,
         sensorManifest=device["sensor_manifest"],
         deviceAuthToken=device.get("device_auth_token") if include_token else None,
-        latestReadings=latest_readings,
+        latestReadings=latest_readings or [],
     )
 
 
 def ensure_device_access(device_id: str, user_id: str) -> None:
     try:
-        device = sold_devices_collection().find_one(
-            {"_id": parse_object_id(device_id), "sold_to_user_id": user_id}
-        )
+        device = claims_collection().find_one({"device_id": device_id, "user_id": user_id})
     except Exception:
         device = None
     if device is None:

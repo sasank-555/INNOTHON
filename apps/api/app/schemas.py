@@ -42,9 +42,16 @@ class DeviceSummary(BaseModel):
     id: str
     hardwareId: str
     deviceModel: str
+    displayName: str | None = None
+    networkName: str | None = None
+    nodeId: str | None = None
+    nodeKind: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     relayCount: int
     firmwareVersion: str | None = None
     claimStatus: str
+    claimCount: int = 0
     sensorManifest: list[SensorManifestItem]
     deviceAuthToken: str | None = None
     latestReadings: list["ReadingResponse"] = Field(default_factory=list)

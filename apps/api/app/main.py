@@ -36,6 +36,7 @@ from app.services import (
     create_device_command,
     get_device_summary,
     ingest_telemetry,
+    list_device_inventory,
     list_user_devices,
     login_user,
     register_user,
@@ -103,6 +104,11 @@ def claim(payload: ClaimDeviceRequest, current_user: dict = Depends(get_current_
 @app.get("/devices", response_model=list[DeviceSummary])
 def list_devices(current_user: dict = Depends(get_current_user)) -> list[DeviceSummary]:
     return list_user_devices(current_user["id"])
+
+
+@app.get("/devices/inventory", response_model=list[DeviceSummary])
+def get_device_inventory(current_user: dict = Depends(get_current_user)) -> list[DeviceSummary]:
+    return list_device_inventory()
 
 
 @app.get("/devices/{device_id}", response_model=DeviceSummary)
