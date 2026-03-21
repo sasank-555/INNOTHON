@@ -126,10 +126,13 @@ class ModelServiceResponse(BaseModel):
     network_payload: dict[str, Any] | None = None
     readings_payload: dict[str, Any] | None = None
     comparison: dict[str, Any] | None = None
+    comparisons: list[dict[str, Any]] | None = None
     analysis: dict[str, Any] | None = None
     network_name: str | None = None
     converged: bool | None = None
     snapshot: dict[str, Any] | None = None
+    alerts: list[dict[str, Any]] | None = None
+    alerts_summary: dict[str, Any] | None = None
 
 
 UserResponse.model_rebuild()
