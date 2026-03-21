@@ -1,0 +1,1508 @@
+{
+  "status": "ok",
+  "network_name": "NITW",
+  "graph": {
+    "nodes": [
+      {
+        "id": "bus_slack",
+        "type": "bus",
+        "label": "Main Grid Bus",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_chem_dept",
+        "type": "bus",
+        "label": "Bus CHEM DEPT",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_lh",
+        "type": "bus",
+        "label": "Bus LH",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_siemens_centre_of_excellence",
+        "type": "bus",
+        "label": "Bus Siemens Centre of Excellence",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_ped",
+        "type": "bus",
+        "label": "Bus PED",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_dispensary",
+        "type": "bus",
+        "label": "Bus DISPENSARY",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_ifc_a",
+        "type": "bus",
+        "label": "Bus IFC A",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_mme",
+        "type": "bus",
+        "label": "Bus MME",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_mfc",
+        "type": "bus",
+        "label": "Bus mFC",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_ccpd",
+        "type": "bus",
+        "label": "Bus CCPD",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_lib",
+        "type": "bus",
+        "label": "Bus LIB",
+        "vn_kv": 20
+      },
+      {
+        "id": "bus_mega_hostel",
+        "type": "bus",
+        "label": "Bus Mega Hostel",
+        "vn_kv": 20
+      },
+      {
+        "id": "grid_main",
+        "type": "external_grid",
+        "label": "Main Grid",
+        "vm_pu": 1
+      },
+      {
+        "id": "load_chem_dept_01",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 01",
+        "p_mw": 0.025,
+        "q_mvar": 0.01
+      },
+      {
+        "id": "load_chem_dept_02",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 02",
+        "p_mw": 0.03,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_chem_dept_03",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 03",
+        "p_mw": 0.035,
+        "q_mvar": 0.014
+      },
+      {
+        "id": "load_chem_dept_04",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 04",
+        "p_mw": 0.04,
+        "q_mvar": 0.016
+      },
+      {
+        "id": "load_chem_dept_05",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 05",
+        "p_mw": 0.045,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_chem_dept_06",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 06",
+        "p_mw": 0.05,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_chem_dept_07",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 07",
+        "p_mw": 0.05,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_chem_dept_08",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 08",
+        "p_mw": 0.06,
+        "q_mvar": 0.024
+      },
+      {
+        "id": "load_chem_dept_09",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 09",
+        "p_mw": 0.075,
+        "q_mvar": 0.03
+      },
+      {
+        "id": "load_chem_dept_10",
+        "type": "load",
+        "label": "CHEM DEPT Sensor 10",
+        "p_mw": 0.09,
+        "q_mvar": 0.036
+      },
+      {
+        "id": "load_lh_01",
+        "type": "load",
+        "label": "LH Sensor 01",
+        "p_mw": 0.02,
+        "q_mvar": 0.0075
+      },
+      {
+        "id": "load_lh_02",
+        "type": "load",
+        "label": "LH Sensor 02",
+        "p_mw": 0.024,
+        "q_mvar": 0.009
+      },
+      {
+        "id": "load_lh_03",
+        "type": "load",
+        "label": "LH Sensor 03",
+        "p_mw": 0.028,
+        "q_mvar": 0.0105
+      },
+      {
+        "id": "load_lh_04",
+        "type": "load",
+        "label": "LH Sensor 04",
+        "p_mw": 0.032,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_lh_05",
+        "type": "load",
+        "label": "LH Sensor 05",
+        "p_mw": 0.036,
+        "q_mvar": 0.0135
+      },
+      {
+        "id": "load_lh_06",
+        "type": "load",
+        "label": "LH Sensor 06",
+        "p_mw": 0.04,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_lh_07",
+        "type": "load",
+        "label": "LH Sensor 07",
+        "p_mw": 0.04,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_lh_08",
+        "type": "load",
+        "label": "LH Sensor 08",
+        "p_mw": 0.048,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_lh_09",
+        "type": "load",
+        "label": "LH Sensor 09",
+        "p_mw": 0.06,
+        "q_mvar": 0.0225
+      },
+      {
+        "id": "load_lh_10",
+        "type": "load",
+        "label": "LH Sensor 10",
+        "p_mw": 0.072,
+        "q_mvar": 0.027
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_01",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 01",
+        "p_mw": 0.03,
+        "q_mvar": 0.0125
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_02",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 02",
+        "p_mw": 0.036,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_03",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 03",
+        "p_mw": 0.042,
+        "q_mvar": 0.0175
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_04",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 04",
+        "p_mw": 0.048,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_05",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 05",
+        "p_mw": 0.054,
+        "q_mvar": 0.0225
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_06",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 06",
+        "p_mw": 0.06,
+        "q_mvar": 0.025
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_07",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 07",
+        "p_mw": 0.06,
+        "q_mvar": 0.025
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_08",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 08",
+        "p_mw": 0.072,
+        "q_mvar": 0.03
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_09",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 09",
+        "p_mw": 0.09,
+        "q_mvar": 0.0375
+      },
+      {
+        "id": "load_siemens_centre_of_excellence_10",
+        "type": "load",
+        "label": "Siemens Centre of Excellence Sensor 10",
+        "p_mw": 0.108,
+        "q_mvar": 0.045
+      },
+      {
+        "id": "load_ped_01",
+        "type": "load",
+        "label": "PED Sensor 01",
+        "p_mw": 0.0225,
+        "q_mvar": 0.009
+      },
+      {
+        "id": "load_ped_02",
+        "type": "load",
+        "label": "PED Sensor 02",
+        "p_mw": 0.027,
+        "q_mvar": 0.0108
+      },
+      {
+        "id": "load_ped_03",
+        "type": "load",
+        "label": "PED Sensor 03",
+        "p_mw": 0.0315,
+        "q_mvar": 0.0126
+      },
+      {
+        "id": "load_ped_04",
+        "type": "load",
+        "label": "PED Sensor 04",
+        "p_mw": 0.036,
+        "q_mvar": 0.0144
+      },
+      {
+        "id": "load_ped_05",
+        "type": "load",
+        "label": "PED Sensor 05",
+        "p_mw": 0.0405,
+        "q_mvar": 0.0162
+      },
+      {
+        "id": "load_ped_06",
+        "type": "load",
+        "label": "PED Sensor 06",
+        "p_mw": 0.045,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_ped_07",
+        "type": "load",
+        "label": "PED Sensor 07",
+        "p_mw": 0.045,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_ped_08",
+        "type": "load",
+        "label": "PED Sensor 08",
+        "p_mw": 0.054,
+        "q_mvar": 0.0216
+      },
+      {
+        "id": "load_ped_09",
+        "type": "load",
+        "label": "PED Sensor 09",
+        "p_mw": 0.0675,
+        "q_mvar": 0.027
+      },
+      {
+        "id": "load_ped_10",
+        "type": "load",
+        "label": "PED Sensor 10",
+        "p_mw": 0.081,
+        "q_mvar": 0.0324
+      },
+      {
+        "id": "load_dispensary_01",
+        "type": "load",
+        "label": "DISPENSARY Sensor 01",
+        "p_mw": 0.015,
+        "q_mvar": 0.005
+      },
+      {
+        "id": "load_dispensary_02",
+        "type": "load",
+        "label": "DISPENSARY Sensor 02",
+        "p_mw": 0.018,
+        "q_mvar": 0.006
+      },
+      {
+        "id": "load_dispensary_03",
+        "type": "load",
+        "label": "DISPENSARY Sensor 03",
+        "p_mw": 0.021,
+        "q_mvar": 0.007
+      },
+      {
+        "id": "load_dispensary_04",
+        "type": "load",
+        "label": "DISPENSARY Sensor 04",
+        "p_mw": 0.024,
+        "q_mvar": 0.008
+      },
+      {
+        "id": "load_dispensary_05",
+        "type": "load",
+        "label": "DISPENSARY Sensor 05",
+        "p_mw": 0.027,
+        "q_mvar": 0.009
+      },
+      {
+        "id": "load_dispensary_06",
+        "type": "load",
+        "label": "DISPENSARY Sensor 06",
+        "p_mw": 0.03,
+        "q_mvar": 0.01
+      },
+      {
+        "id": "load_dispensary_07",
+        "type": "load",
+        "label": "DISPENSARY Sensor 07",
+        "p_mw": 0.03,
+        "q_mvar": 0.01
+      },
+      {
+        "id": "load_dispensary_08",
+        "type": "load",
+        "label": "DISPENSARY Sensor 08",
+        "p_mw": 0.036,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_dispensary_09",
+        "type": "load",
+        "label": "DISPENSARY Sensor 09",
+        "p_mw": 0.045,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_dispensary_10",
+        "type": "load",
+        "label": "DISPENSARY Sensor 10",
+        "p_mw": 0.054,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_ifc_a_01",
+        "type": "load",
+        "label": "IFC A Sensor 01",
+        "p_mw": 0.025,
+        "q_mvar": 0.01
+      },
+      {
+        "id": "load_ifc_a_02",
+        "type": "load",
+        "label": "IFC A Sensor 02",
+        "p_mw": 0.03,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_ifc_a_03",
+        "type": "load",
+        "label": "IFC A Sensor 03",
+        "p_mw": 0.035,
+        "q_mvar": 0.014
+      },
+      {
+        "id": "load_ifc_a_04",
+        "type": "load",
+        "label": "IFC A Sensor 04",
+        "p_mw": 0.04,
+        "q_mvar": 0.016
+      },
+      {
+        "id": "load_ifc_a_05",
+        "type": "load",
+        "label": "IFC A Sensor 05",
+        "p_mw": 0.045,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_ifc_a_06",
+        "type": "load",
+        "label": "IFC A Sensor 06",
+        "p_mw": 0.05,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_ifc_a_07",
+        "type": "load",
+        "label": "IFC A Sensor 07",
+        "p_mw": 0.05,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_ifc_a_08",
+        "type": "load",
+        "label": "IFC A Sensor 08",
+        "p_mw": 0.06,
+        "q_mvar": 0.024
+      },
+      {
+        "id": "load_ifc_a_09",
+        "type": "load",
+        "label": "IFC A Sensor 09",
+        "p_mw": 0.075,
+        "q_mvar": 0.03
+      },
+      {
+        "id": "load_ifc_a_10",
+        "type": "load",
+        "label": "IFC A Sensor 10",
+        "p_mw": 0.09,
+        "q_mvar": 0.036
+      },
+      {
+        "id": "load_mme_01",
+        "type": "load",
+        "label": "MME Sensor 01",
+        "p_mw": 0.0275,
+        "q_mvar": 0.011
+      },
+      {
+        "id": "load_mme_02",
+        "type": "load",
+        "label": "MME Sensor 02",
+        "p_mw": 0.033,
+        "q_mvar": 0.0132
+      },
+      {
+        "id": "load_mme_03",
+        "type": "load",
+        "label": "MME Sensor 03",
+        "p_mw": 0.0385,
+        "q_mvar": 0.0154
+      },
+      {
+        "id": "load_mme_04",
+        "type": "load",
+        "label": "MME Sensor 04",
+        "p_mw": 0.044,
+        "q_mvar": 0.0176
+      },
+      {
+        "id": "load_mme_05",
+        "type": "load",
+        "label": "MME Sensor 05",
+        "p_mw": 0.0495,
+        "q_mvar": 0.0198
+      },
+      {
+        "id": "load_mme_06",
+        "type": "load",
+        "label": "MME Sensor 06",
+        "p_mw": 0.055,
+        "q_mvar": 0.022
+      },
+      {
+        "id": "load_mme_07",
+        "type": "load",
+        "label": "MME Sensor 07",
+        "p_mw": 0.055,
+        "q_mvar": 0.022
+      },
+      {
+        "id": "load_mme_08",
+        "type": "load",
+        "label": "MME Sensor 08",
+        "p_mw": 0.066,
+        "q_mvar": 0.0264
+      },
+      {
+        "id": "load_mme_09",
+        "type": "load",
+        "label": "MME Sensor 09",
+        "p_mw": 0.0825,
+        "q_mvar": 0.033
+      },
+      {
+        "id": "load_mme_10",
+        "type": "load",
+        "label": "MME Sensor 10",
+        "p_mw": 0.099,
+        "q_mvar": 0.0396
+      },
+      {
+        "id": "load_mfc_01",
+        "type": "load",
+        "label": "mFC Sensor 01",
+        "p_mw": 0.0175,
+        "q_mvar": 0.006
+      },
+      {
+        "id": "load_mfc_02",
+        "type": "load",
+        "label": "mFC Sensor 02",
+        "p_mw": 0.021,
+        "q_mvar": 0.0072
+      },
+      {
+        "id": "load_mfc_03",
+        "type": "load",
+        "label": "mFC Sensor 03",
+        "p_mw": 0.0245,
+        "q_mvar": 0.0084
+      },
+      {
+        "id": "load_mfc_04",
+        "type": "load",
+        "label": "mFC Sensor 04",
+        "p_mw": 0.028,
+        "q_mvar": 0.0096
+      },
+      {
+        "id": "load_mfc_05",
+        "type": "load",
+        "label": "mFC Sensor 05",
+        "p_mw": 0.0315,
+        "q_mvar": 0.0108
+      },
+      {
+        "id": "load_mfc_06",
+        "type": "load",
+        "label": "mFC Sensor 06",
+        "p_mw": 0.035,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_mfc_07",
+        "type": "load",
+        "label": "mFC Sensor 07",
+        "p_mw": 0.035,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_mfc_08",
+        "type": "load",
+        "label": "mFC Sensor 08",
+        "p_mw": 0.042,
+        "q_mvar": 0.0144
+      },
+      {
+        "id": "load_mfc_09",
+        "type": "load",
+        "label": "mFC Sensor 09",
+        "p_mw": 0.0525,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_mfc_10",
+        "type": "load",
+        "label": "mFC Sensor 10",
+        "p_mw": 0.063,
+        "q_mvar": 0.0216
+      },
+      {
+        "id": "load_ccpd_01",
+        "type": "load",
+        "label": "CCPD Sensor 01",
+        "p_mw": 0.02,
+        "q_mvar": 0.0075
+      },
+      {
+        "id": "load_ccpd_02",
+        "type": "load",
+        "label": "CCPD Sensor 02",
+        "p_mw": 0.024,
+        "q_mvar": 0.009
+      },
+      {
+        "id": "load_ccpd_03",
+        "type": "load",
+        "label": "CCPD Sensor 03",
+        "p_mw": 0.028,
+        "q_mvar": 0.0105
+      },
+      {
+        "id": "load_ccpd_04",
+        "type": "load",
+        "label": "CCPD Sensor 04",
+        "p_mw": 0.032,
+        "q_mvar": 0.012
+      },
+      {
+        "id": "load_ccpd_05",
+        "type": "load",
+        "label": "CCPD Sensor 05",
+        "p_mw": 0.036,
+        "q_mvar": 0.0135
+      },
+      {
+        "id": "load_ccpd_06",
+        "type": "load",
+        "label": "CCPD Sensor 06",
+        "p_mw": 0.04,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_ccpd_07",
+        "type": "load",
+        "label": "CCPD Sensor 07",
+        "p_mw": 0.04,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_ccpd_08",
+        "type": "load",
+        "label": "CCPD Sensor 08",
+        "p_mw": 0.048,
+        "q_mvar": 0.018
+      },
+      {
+        "id": "load_ccpd_09",
+        "type": "load",
+        "label": "CCPD Sensor 09",
+        "p_mw": 0.06,
+        "q_mvar": 0.0225
+      },
+      {
+        "id": "load_ccpd_10",
+        "type": "load",
+        "label": "CCPD Sensor 10",
+        "p_mw": 0.072,
+        "q_mvar": 0.027
+      },
+      {
+        "id": "load_lib_01",
+        "type": "load",
+        "label": "LIB Sensor 01",
+        "p_mw": 0.03,
+        "q_mvar": 0.0125
+      },
+      {
+        "id": "load_lib_02",
+        "type": "load",
+        "label": "LIB Sensor 02",
+        "p_mw": 0.036,
+        "q_mvar": 0.015
+      },
+      {
+        "id": "load_lib_03",
+        "type": "load",
+        "label": "LIB Sensor 03",
+        "p_mw": 0.042,
+        "q_mvar": 0.0175
+      },
+      {
+        "id": "load_lib_04",
+        "type": "load",
+        "label": "LIB Sensor 04",
+        "p_mw": 0.048,
+        "q_mvar": 0.02
+      },
+      {
+        "id": "load_lib_05",
+        "type": "load",
+        "label": "LIB Sensor 05",
+        "p_mw": 0.054,
+        "q_mvar": 0.0225
+      },
+      {
+        "id": "load_lib_06",
+        "type": "load",
+        "label": "LIB Sensor 06",
+        "p_mw": 0.06,
+        "q_mvar": 0.025
+      },
+      {
+        "id": "load_lib_07",
+        "type": "load",
+        "label": "LIB Sensor 07",
+        "p_mw": 0.06,
+        "q_mvar": 0.025
+      },
+      {
+        "id": "load_lib_08",
+        "type": "load",
+        "label": "LIB Sensor 08",
+        "p_mw": 0.072,
+        "q_mvar": 0.03
+      },
+      {
+        "id": "load_lib_09",
+        "type": "load",
+        "label": "LIB Sensor 09",
+        "p_mw": 0.09,
+        "q_mvar": 0.0375
+      },
+      {
+        "id": "load_lib_10",
+        "type": "load",
+        "label": "LIB Sensor 10",
+        "p_mw": 0.108,
+        "q_mvar": 0.045
+      },
+      {
+        "id": "load_mega_hostel_01",
+        "type": "load",
+        "label": "Main panel sensor",
+        "p_mw": 0.1,
+        "q_mvar": 0.04
+      },
+      {
+        "id": "load_mega_hostel_02",
+        "type": "load",
+        "label": "Mega Hostel Sensor 02",
+        "p_mw": 0.05,
+        "q_mvar": 0.02
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_grid_main_to_bus_slack",
+        "source": "grid_main",
+        "target": "bus_slack",
+        "type": "external_grid_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_01",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_02",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_03",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_04",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_05",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_06",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_07",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_08",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_09",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_chem_dept_to_load_chem_dept_10",
+        "source": "bus_chem_dept",
+        "target": "load_chem_dept_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_01",
+        "source": "bus_lh",
+        "target": "load_lh_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_02",
+        "source": "bus_lh",
+        "target": "load_lh_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_03",
+        "source": "bus_lh",
+        "target": "load_lh_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_04",
+        "source": "bus_lh",
+        "target": "load_lh_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_05",
+        "source": "bus_lh",
+        "target": "load_lh_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_06",
+        "source": "bus_lh",
+        "target": "load_lh_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_07",
+        "source": "bus_lh",
+        "target": "load_lh_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_08",
+        "source": "bus_lh",
+        "target": "load_lh_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_09",
+        "source": "bus_lh",
+        "target": "load_lh_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lh_to_load_lh_10",
+        "source": "bus_lh",
+        "target": "load_lh_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_01",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_02",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_03",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_04",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_05",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_06",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_07",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_08",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_09",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_siemens_centre_of_excellence_to_load_siemens_centre_of_excellence_10",
+        "source": "bus_siemens_centre_of_excellence",
+        "target": "load_siemens_centre_of_excellence_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_01",
+        "source": "bus_ped",
+        "target": "load_ped_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_02",
+        "source": "bus_ped",
+        "target": "load_ped_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_03",
+        "source": "bus_ped",
+        "target": "load_ped_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_04",
+        "source": "bus_ped",
+        "target": "load_ped_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_05",
+        "source": "bus_ped",
+        "target": "load_ped_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_06",
+        "source": "bus_ped",
+        "target": "load_ped_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_07",
+        "source": "bus_ped",
+        "target": "load_ped_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_08",
+        "source": "bus_ped",
+        "target": "load_ped_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_09",
+        "source": "bus_ped",
+        "target": "load_ped_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ped_to_load_ped_10",
+        "source": "bus_ped",
+        "target": "load_ped_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_01",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_02",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_03",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_04",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_05",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_06",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_07",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_08",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_09",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_dispensary_to_load_dispensary_10",
+        "source": "bus_dispensary",
+        "target": "load_dispensary_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_01",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_02",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_03",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_04",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_05",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_06",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_07",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_08",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_09",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ifc_a_to_load_ifc_a_10",
+        "source": "bus_ifc_a",
+        "target": "load_ifc_a_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_01",
+        "source": "bus_mme",
+        "target": "load_mme_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_02",
+        "source": "bus_mme",
+        "target": "load_mme_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_03",
+        "source": "bus_mme",
+        "target": "load_mme_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_04",
+        "source": "bus_mme",
+        "target": "load_mme_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_05",
+        "source": "bus_mme",
+        "target": "load_mme_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_06",
+        "source": "bus_mme",
+        "target": "load_mme_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_07",
+        "source": "bus_mme",
+        "target": "load_mme_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_08",
+        "source": "bus_mme",
+        "target": "load_mme_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_09",
+        "source": "bus_mme",
+        "target": "load_mme_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mme_to_load_mme_10",
+        "source": "bus_mme",
+        "target": "load_mme_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_01",
+        "source": "bus_mfc",
+        "target": "load_mfc_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_02",
+        "source": "bus_mfc",
+        "target": "load_mfc_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_03",
+        "source": "bus_mfc",
+        "target": "load_mfc_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_04",
+        "source": "bus_mfc",
+        "target": "load_mfc_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_05",
+        "source": "bus_mfc",
+        "target": "load_mfc_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_06",
+        "source": "bus_mfc",
+        "target": "load_mfc_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_07",
+        "source": "bus_mfc",
+        "target": "load_mfc_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_08",
+        "source": "bus_mfc",
+        "target": "load_mfc_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_09",
+        "source": "bus_mfc",
+        "target": "load_mfc_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mfc_to_load_mfc_10",
+        "source": "bus_mfc",
+        "target": "load_mfc_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_01",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_02",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_03",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_04",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_05",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_06",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_07",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_08",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_09",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_ccpd_to_load_ccpd_10",
+        "source": "bus_ccpd",
+        "target": "load_ccpd_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_01",
+        "source": "bus_lib",
+        "target": "load_lib_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_02",
+        "source": "bus_lib",
+        "target": "load_lib_02",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_03",
+        "source": "bus_lib",
+        "target": "load_lib_03",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_04",
+        "source": "bus_lib",
+        "target": "load_lib_04",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_05",
+        "source": "bus_lib",
+        "target": "load_lib_05",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_06",
+        "source": "bus_lib",
+        "target": "load_lib_06",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_07",
+        "source": "bus_lib",
+        "target": "load_lib_07",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_08",
+        "source": "bus_lib",
+        "target": "load_lib_08",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_09",
+        "source": "bus_lib",
+        "target": "load_lib_09",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_lib_to_load_lib_10",
+        "source": "bus_lib",
+        "target": "load_lib_10",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mega_hostel_to_load_mega_hostel_01",
+        "source": "bus_mega_hostel",
+        "target": "load_mega_hostel_01",
+        "type": "load_link"
+      },
+      {
+        "id": "edge_bus_mega_hostel_to_load_mega_hostel_02",
+        "source": "bus_mega_hostel",
+        "target": "load_mega_hostel_02",
+        "type": "load_link"
+      },
+      {
+        "id": "line_bus_slack_to_bus_chem_dept",
+        "source": "bus_slack",
+        "target": "bus_chem_dept",
+        "type": "line",
+        "label": "Slack to CHEM DEPT",
+        "length_km": 0.18
+      },
+      {
+        "id": "line_bus_slack_to_bus_lh",
+        "source": "bus_slack",
+        "target": "bus_lh",
+        "type": "line",
+        "label": "Slack to LH",
+        "length_km": 0.21
+      },
+      {
+        "id": "line_bus_slack_to_bus_siemens_centre_of_excellence",
+        "source": "bus_slack",
+        "target": "bus_siemens_centre_of_excellence",
+        "type": "line",
+        "label": "Slack to Siemens Centre of Excellence",
+        "length_km": 0.24
+      },
+      {
+        "id": "line_bus_slack_to_bus_ped",
+        "source": "bus_slack",
+        "target": "bus_ped",
+        "type": "line",
+        "label": "Slack to PED",
+        "length_km": 0.27
+      },
+      {
+        "id": "line_bus_slack_to_bus_dispensary",
+        "source": "bus_slack",
+        "target": "bus_dispensary",
+        "type": "line",
+        "label": "Slack to DISPENSARY",
+        "length_km": 0.3
+      },
+      {
+        "id": "line_bus_slack_to_bus_ifc_a",
+        "source": "bus_slack",
+        "target": "bus_ifc_a",
+        "type": "line",
+        "label": "Slack to IFC A",
+        "length_km": 0.33
+      },
+      {
+        "id": "line_bus_slack_to_bus_mme",
+        "source": "bus_slack",
+        "target": "bus_mme",
+        "type": "line",
+        "label": "Slack to MME",
+        "length_km": 0.36
+      },
+      {
+        "id": "line_bus_slack_to_bus_mfc",
+        "source": "bus_slack",
+        "target": "bus_mfc",
+        "type": "line",
+        "label": "Slack to mFC",
+        "length_km": 0.39
+      },
+      {
+        "id": "line_bus_slack_to_bus_ccpd",
+        "source": "bus_slack",
+        "target": "bus_ccpd",
+        "type": "line",
+        "label": "Slack to CCPD",
+        "length_km": 0.42
+      },
+      {
+        "id": "line_bus_slack_to_bus_lib",
+        "source": "bus_slack",
+        "target": "bus_lib",
+        "type": "line",
+        "label": "Slack to LIB",
+        "length_km": 0.45
+      },
+      {
+        "id": "line_bus_slack_to_bus_mega_hostel",
+        "source": "bus_slack",
+        "target": "bus_mega_hostel",
+        "type": "line",
+        "label": "bus_slack to bus_mega_hostel",
+        "length_km": 1
+      }
+    ]
+  }
+}

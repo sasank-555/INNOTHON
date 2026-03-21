@@ -5,6 +5,7 @@ import { divIcon } from 'leaflet'
 import type { LatLngExpression } from 'leaflet'
 
 import './App.css'
+import { buildPredictiveInsights } from './aiModel'
 import {
   claimDevice,
   compareNitwNetwork,
@@ -179,6 +180,25 @@ function App() {
   }, [claimedDevices, compareByElementId, inventory, nitwReference, reviewBySensorId, supervised])
 
   const selectedBuilding = buildings.find((b) => b.id === selectedBuildingId) ?? buildings[0] ?? null
+  const modelInsights = useMemo(() => buildPredictiveInsights(
+    buildings.map((building) => ({
+      id: building.id,
+      name: building.name,
+      expectedMw: building.expectedMw,
+      currentMw: building.currentMw,
+      sensors: building.sensors.map((sensor) => ({
+        id: sensor.id,
+        name: sensor.name,
+        expectedMw: sensor.expectedMw,
+        currentMw: sensor.currentMw,
+        sensorIndex: sensor.sensorIndex,
+        comparisonStatus: sensor.comparisonStatus,
+        reviewDecision: sensor.reviewDecision,
+        status: sensor.status,
+      })),
+    })),
+  ), [buildings])
+  const selectedBuildingModel = selectedBuilding ? modelInsights.buildings[selectedBuilding.id] : null
   const stats = useMemo(() => ({
     claimed: buildings.filter((b) => b.claimedByCurrentUser).length,
     blue: buildings.filter((b) => b.status === 'unclaimed').length,
@@ -430,6 +450,7 @@ function App() {
             <div className="header-stat"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="header-stat"><span>Total sensors</span><strong>{stats.sensors}</strong></div>
             <div className="header-stat"><span>Red buildings</span><strong>{stats.red}</strong></div>
+            <div className="header-stat"><span>AI flagged sensors</span><strong>{modelInsights.summary.highRiskSensors}</strong></div>
           </div>
           <div className="header-button-row">
             <button className="ghost-button" disabled={pageBusy || saveBuildingBusy} onClick={beginAddBuildingMode} type="button">Add building</button>
@@ -484,6 +505,7 @@ function App() {
                     <span>Expected aggregate: {building.expectedMw.toFixed(2)} MW</span>
                     <span>Current aggregate: {building.currentMw.toFixed(2)} MW</span>
                     <span>Anomalous sensors: {building.sensors.filter((sensor) => sensor.status === 'deviation').length}</span>
+                    <span>AI high-risk sensors: {modelInsights.buildings[building.id]?.highRiskSensorCount ?? 0}</span>
                     <span className={`map-badge map-badge--${building.status}`}>{statusLabel(building.status)}</span>
                     <button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(building.id)} type="button">Expand building</button>
                     {renderClaimBox(building)}
@@ -523,6 +545,8 @@ function App() {
             <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
             <div className="metric"><span>Status</span><strong>{pageBusy ? 'Refreshing...' : supervised ? 'Supervised' : 'Ready to supervise'}</strong></div>
+            <div className="metric"><span>AI window</span><strong>{modelInsights.summary.windowSize} steps</strong></div>
+            <div className="metric"><span>AI source</span><strong>Fake sensor feed</strong></div>
           </article>
 
           <article className="panel panel--list">
@@ -549,6 +573,9 @@ function App() {
                 <div><span>Sensors</span><strong>{selectedBuilding.sensorCount}</strong></div>
                 <div><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
                 <div><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
+                <div><span>AI top label</span><strong>{selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : 'Waiting'}</strong></div>
+                <div><span>AI risk score</span><strong>{selectedBuildingModel ? formatPercent(selectedBuildingModel.anomalyScore) : '--'}</strong></div>
+                <div><span>Forecast next 30m</span><strong>{selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
               </div>
               <div className="panel-action-row"><button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(selectedBuilding.id)} type="button">Open building view</button></div>
               {renderClaimBox(selectedBuilding)}
@@ -577,6 +604,8 @@ function App() {
               <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
               <div className="metric"><span>Anomalous sensors</span><strong>{selectedBuilding.sensors.filter((sensor) => sensor.status === 'deviation').length}</strong></div>
               <div className="metric"><span>Claim count</span><strong>{selectedBuilding.claimCount}</strong></div>
+              <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingModel?.highRiskSensorCount ?? 0}</strong></div>
+              <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
             </div>
 
             <div className="building-modal__toolbar"><button className="ghost-button ghost-button--accent" onClick={beginAddSensorMode} type="button">Add node</button></div>
@@ -608,6 +637,9 @@ function App() {
                     <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
                     <div><span>Coordinates</span><strong>{selectedBuilding.lat.toFixed(6)}, {selectedBuilding.lng.toFixed(6)}</strong></div>
                     <div><span>Supervision</span><strong>{supervised ? 'Active' : 'Not run yet'}</strong></div>
+                    <div><span>AI window</span><strong>{modelInsights.summary.windowSize} samples</strong></div>
+                    <div><span>Model source</span><strong>Predictive preview</strong></div>
+                    <div><span>Top issue</span><strong>{selectedBuildingModel?.topIssue ?? 'Window stable'}</strong></div>
                   </div>
                   {renderClaimBox(selectedBuilding)}
                 </article>
@@ -617,32 +649,64 @@ function App() {
                 <div className="sensor-section sensor-section--modal">
                   <p className="kicker">All Internal Sensors</p>
                   <div className="sensor-list sensor-list--modal">
-                    {selectedBuilding.sensors.map((sensor) => (
-                      <article className="sensor-card sensor-card--modal" key={sensor.id}>
-                        <div className="sensor-card__header sensor-card__header--split">
-                          <div><strong>{sensor.name}</strong><span>{sensor.sensorId}</span></div>
-                          <span className={`mini-badge status-${sensor.status}`}>{comparisonLabel(sensor.comparisonStatus)}</span>
-                        </div>
-                        <div className="sensor-card__metrics sensor-card__metrics--grid">
-                          <span>Expected: {sensor.expectedMw.toFixed(3)} MW</span>
-                          <span>Measured: {sensor.currentMw.toFixed(3)} MW</span>
-                          <span>Simulated exact: {sensor.comparedExpectedMw !== null ? formatMw(sensor.comparedExpectedMw) : 'Unavailable'}</span>
-                          <span>Measured exact: {sensor.comparedActualMw !== null ? formatMw(sensor.comparedActualMw) : 'No reading'}</span>
-                          <span>Delta: {sensor.deltaMw !== null ? formatSignedMw(sensor.deltaMw) : 'Not comparable'}</span>
-                          <span>Sensor index: {sensor.sensorIndex}</span>
-                        </div>
-                        {selectedBuilding.claimedByCurrentUser && supervised && sensor.status === 'deviation' ? (
-                          <div className="review-box review-box--panel">
-                            <strong>Operator decision</strong>
-                            <div className="review-actions">
-                              <button onClick={() => markSensorReview(sensor.id, 'normal')} type="button">Mark normal</button>
-                              <button onClick={() => markSensorReview(sensor.id, 'anomaly')} type="button">Keep anomaly</button>
-                              {sensor.reviewDecision ? <button className="ghost-button" onClick={() => clearSensorReview(sensor.id)} type="button">Clear review</button> : null}
+                    {selectedBuilding.sensors.map((sensor) => {
+                      const sensorModel = modelInsights.sensors[sensor.id]
+                      return (
+                        <article className="sensor-card sensor-card--modal" key={sensor.id}>
+                          <div className="sensor-card__header sensor-card__header--split">
+                            <div><strong>{sensor.name}</strong><span>{sensor.sensorId}</span></div>
+                            <div className="sensor-card__badges">
+                              <span className={`mini-badge status-${sensor.status}`}>{comparisonLabel(sensor.comparisonStatus)}</span>
+                              {sensorModel ? <span className={`mini-badge model-badge model-badge--${modelToneClass(sensorModel.label)}`}>{modelLabel(sensorModel.label)}</span> : null}
                             </div>
                           </div>
-                        ) : null}
-                      </article>
-                    ))}
+                          <div className="sensor-card__metrics sensor-card__metrics--grid">
+                            <span>Expected: {sensor.expectedMw.toFixed(3)} MW</span>
+                            <span>Measured: {sensor.currentMw.toFixed(3)} MW</span>
+                            <span>Simulated exact: {sensor.comparedExpectedMw !== null ? formatMw(sensor.comparedExpectedMw) : 'Unavailable'}</span>
+                            <span>Measured exact: {sensor.comparedActualMw !== null ? formatMw(sensor.comparedActualMw) : 'No reading'}</span>
+                            <span>Delta: {sensor.deltaMw !== null ? formatSignedMw(sensor.deltaMw) : 'Not comparable'}</span>
+                            <span>Sensor index: {sensor.sensorIndex}</span>
+                          </div>
+
+                          {sensorModel ? (
+                            <div className="model-box">
+                              <div className="model-box__header">
+                                <strong>AI model window</strong>
+                                <span>{formatPercent(sensorModel.confidence)} confidence</span>
+                              </div>
+                              <div className="sensor-card__metrics sensor-card__metrics--grid">
+                                <span>Anomaly score: {formatPercent(sensorModel.anomalyScore)}</span>
+                                <span>Forecast next 30m: {sensorModel.forecastMw.toFixed(3)} MW</span>
+                                <span>Voltage now: {sensorModel.currentVoltageV.toFixed(1)} V</span>
+                                <span>Current now: {sensorModel.currentCurrentA.toFixed(2)} A</span>
+                              </div>
+                              <div className="history-strip" aria-label="Recent model input history">
+                                {sensorModel.history.map((point) => (
+                                  <div className="history-strip__item" key={point.timestamp}>
+                                    <span className="history-strip__label">{new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <span className="history-strip__bar" style={{ height: `${Math.max(16, point.powerMw / Math.max(sensorModel.forecastMw, 0.05) * 72)}px` }} />
+                                    <span className="history-strip__value">{point.powerMw.toFixed(3)} MW</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="model-box__reason">{sensorModel.reason}</p>
+                            </div>
+                          ) : null}
+
+                          {selectedBuilding.claimedByCurrentUser && supervised && sensor.status === 'deviation' ? (
+                            <div className="review-box review-box--panel">
+                              <strong>Operator decision</strong>
+                              <div className="review-actions">
+                                <button onClick={() => markSensorReview(sensor.id, 'normal')} type="button">Mark normal</button>
+                                <button onClick={() => markSensorReview(sensor.id, 'anomaly')} type="button">Keep anomaly</button>
+                                {sensor.reviewDecision ? <button className="ghost-button" onClick={() => clearSensorReview(sensor.id)} type="button">Clear review</button> : null}
+                              </div>
+                            </div>
+                          ) : null}
+                        </article>
+                      )
+                    })}
                   </div>
                 </div>
               </div>
@@ -775,6 +839,28 @@ function comparisonLabel(status: string | null) {
   if (status === 'match') return 'Match'
   if (status === 'deviation') return 'Deviation'
   return status
+}
+
+function modelLabel(label: string) {
+  if (label === 'stable') return 'AI Stable'
+  if (label === 'sensor_fault') return 'AI Sensor Fault'
+  if (label === 'undervoltage') return 'AI Undervoltage'
+  if (label === 'overload') return 'AI Overload'
+  if (label === 'outage') return 'AI Outage'
+  return label
+}
+
+function modelToneClass(label: string) {
+  if (label === 'stable') return 'stable'
+  if (label === 'sensor_fault') return 'warning'
+  if (label === 'undervoltage') return 'warning'
+  if (label === 'overload') return 'danger'
+  if (label === 'outage') return 'danger'
+  return 'stable'
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(value * 100)}%`
 }
 
 function buildUniqueId(baseId: string, existingIds: string[]) {

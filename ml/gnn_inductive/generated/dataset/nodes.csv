@@ -1,0 +1,116 @@
+node_id,node_type,label,base_voltage_v,nominal_power_kw,nominal_q_kvar,degree,parent_bus_id
+bus_slack,bus,Main Grid Bus,20000.0,4800.0,0.0,12,
+bus_chem_dept,bus,Bus CHEM DEPT,20000.0,500.0,0.0,11,
+bus_lh,bus,Bus LH,20000.0,400.0,0.0,11,
+bus_siemens_centre_of_excellence,bus,Bus Siemens Centre of Excellence,20000.0,600.0,0.0,11,
+bus_ped,bus,Bus PED,20000.0,450.0,0.0,11,
+bus_dispensary,bus,Bus DISPENSARY,20000.0,300.0,0.0,11,
+bus_ifc_a,bus,Bus IFC A,20000.0,500.0,0.0,11,
+bus_mme,bus,Bus MME,20000.0,550.0,0.0,11,
+bus_mfc,bus,Bus mFC,20000.0,350.0,0.0,11,
+bus_ccpd,bus,Bus CCPD,20000.0,400.0,0.0,11,
+bus_lib,bus,Bus LIB,20000.0,600.0,0.0,11,
+bus_mega_hostel,bus,Bus Mega Hostel,20000.0,150.0,0.0,3,
+grid_main,external_grid,Main Grid,20000.0,4800.0,0.0,1,
+load_chem_dept_01,load,CHEM DEPT Sensor 01,20000.0,25.0,10.0,1,bus_chem_dept
+load_chem_dept_02,load,CHEM DEPT Sensor 02,20000.0,30.0,12.0,1,bus_chem_dept
+load_chem_dept_03,load,CHEM DEPT Sensor 03,20000.0,35.0,14.0,1,bus_chem_dept
+load_chem_dept_04,load,CHEM DEPT Sensor 04,20000.0,40.0,16.0,1,bus_chem_dept
+load_chem_dept_05,load,CHEM DEPT Sensor 05,20000.0,45.0,18.0,1,bus_chem_dept
+load_chem_dept_06,load,CHEM DEPT Sensor 06,20000.0,50.0,20.0,1,bus_chem_dept
+load_chem_dept_07,load,CHEM DEPT Sensor 07,20000.0,50.0,20.0,1,bus_chem_dept
+load_chem_dept_08,load,CHEM DEPT Sensor 08,20000.0,60.0,24.0,1,bus_chem_dept
+load_chem_dept_09,load,CHEM DEPT Sensor 09,20000.0,75.0,30.0,1,bus_chem_dept
+load_chem_dept_10,load,CHEM DEPT Sensor 10,20000.0,90.0,36.0,1,bus_chem_dept
+load_lh_01,load,LH Sensor 01,20000.0,20.0,7.5,1,bus_lh
+load_lh_02,load,LH Sensor 02,20000.0,24.0,9.0,1,bus_lh
+load_lh_03,load,LH Sensor 03,20000.0,28.0,10.5,1,bus_lh
+load_lh_04,load,LH Sensor 04,20000.0,32.0,12.0,1,bus_lh
+load_lh_05,load,LH Sensor 05,20000.0,36.0,13.5,1,bus_lh
+load_lh_06,load,LH Sensor 06,20000.0,40.0,15.0,1,bus_lh
+load_lh_07,load,LH Sensor 07,20000.0,40.0,15.0,1,bus_lh
+load_lh_08,load,LH Sensor 08,20000.0,48.0,18.0,1,bus_lh
+load_lh_09,load,LH Sensor 09,20000.0,60.0,22.5,1,bus_lh
+load_lh_10,load,LH Sensor 10,20000.0,72.0,27.0,1,bus_lh
+load_siemens_centre_of_excellence_01,load,Siemens Centre of Excellence Sensor 01,20000.0,30.0,12.5,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_02,load,Siemens Centre of Excellence Sensor 02,20000.0,36.0,15.0,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_03,load,Siemens Centre of Excellence Sensor 03,20000.0,42.0,17.5,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_04,load,Siemens Centre of Excellence Sensor 04,20000.0,48.0,20.0,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_05,load,Siemens Centre of Excellence Sensor 05,20000.0,54.0,22.5,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_06,load,Siemens Centre of Excellence Sensor 06,20000.0,60.0,25.0,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_07,load,Siemens Centre of Excellence Sensor 07,20000.0,60.0,25.0,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_08,load,Siemens Centre of Excellence Sensor 08,20000.0,72.0,30.0,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_09,load,Siemens Centre of Excellence Sensor 09,20000.0,90.0,37.5,1,bus_siemens_centre_of_excellence
+load_siemens_centre_of_excellence_10,load,Siemens Centre of Excellence Sensor 10,20000.0,108.0,45.0,1,bus_siemens_centre_of_excellence
+load_ped_01,load,PED Sensor 01,20000.0,22.5,9.0,1,bus_ped
+load_ped_02,load,PED Sensor 02,20000.0,27.0,10.8,1,bus_ped
+load_ped_03,load,PED Sensor 03,20000.0,31.5,12.6,1,bus_ped
+load_ped_04,load,PED Sensor 04,20000.0,36.0,14.4,1,bus_ped
+load_ped_05,load,PED Sensor 05,20000.0,40.5,16.2,1,bus_ped
+load_ped_06,load,PED Sensor 06,20000.0,45.0,18.0,1,bus_ped
+load_ped_07,load,PED Sensor 07,20000.0,45.0,18.0,1,bus_ped
+load_ped_08,load,PED Sensor 08,20000.0,54.0,21.6,1,bus_ped
+load_ped_09,load,PED Sensor 09,20000.0,67.5,27.0,1,bus_ped
+load_ped_10,load,PED Sensor 10,20000.0,81.0,32.4,1,bus_ped
+load_dispensary_01,load,DISPENSARY Sensor 01,20000.0,15.0,5.0,1,bus_dispensary
+load_dispensary_02,load,DISPENSARY Sensor 02,20000.0,18.0,6.0,1,bus_dispensary
+load_dispensary_03,load,DISPENSARY Sensor 03,20000.0,21.0,7.0,1,bus_dispensary
+load_dispensary_04,load,DISPENSARY Sensor 04,20000.0,24.0,8.0,1,bus_dispensary
+load_dispensary_05,load,DISPENSARY Sensor 05,20000.0,27.0,9.0,1,bus_dispensary
+load_dispensary_06,load,DISPENSARY Sensor 06,20000.0,30.0,10.0,1,bus_dispensary
+load_dispensary_07,load,DISPENSARY Sensor 07,20000.0,30.0,10.0,1,bus_dispensary
+load_dispensary_08,load,DISPENSARY Sensor 08,20000.0,36.0,12.0,1,bus_dispensary
+load_dispensary_09,load,DISPENSARY Sensor 09,20000.0,45.0,15.0,1,bus_dispensary
+load_dispensary_10,load,DISPENSARY Sensor 10,20000.0,54.0,18.0,1,bus_dispensary
+load_ifc_a_01,load,IFC A Sensor 01,20000.0,25.0,10.0,1,bus_ifc_a
+load_ifc_a_02,load,IFC A Sensor 02,20000.0,30.0,12.0,1,bus_ifc_a
+load_ifc_a_03,load,IFC A Sensor 03,20000.0,35.0,14.0,1,bus_ifc_a
+load_ifc_a_04,load,IFC A Sensor 04,20000.0,40.0,16.0,1,bus_ifc_a
+load_ifc_a_05,load,IFC A Sensor 05,20000.0,45.0,18.0,1,bus_ifc_a
+load_ifc_a_06,load,IFC A Sensor 06,20000.0,50.0,20.0,1,bus_ifc_a
+load_ifc_a_07,load,IFC A Sensor 07,20000.0,50.0,20.0,1,bus_ifc_a
+load_ifc_a_08,load,IFC A Sensor 08,20000.0,60.0,24.0,1,bus_ifc_a
+load_ifc_a_09,load,IFC A Sensor 09,20000.0,75.0,30.0,1,bus_ifc_a
+load_ifc_a_10,load,IFC A Sensor 10,20000.0,90.0,36.0,1,bus_ifc_a
+load_mme_01,load,MME Sensor 01,20000.0,27.5,11.0,1,bus_mme
+load_mme_02,load,MME Sensor 02,20000.0,33.0,13.2,1,bus_mme
+load_mme_03,load,MME Sensor 03,20000.0,38.5,15.4,1,bus_mme
+load_mme_04,load,MME Sensor 04,20000.0,44.0,17.6,1,bus_mme
+load_mme_05,load,MME Sensor 05,20000.0,49.5,19.8,1,bus_mme
+load_mme_06,load,MME Sensor 06,20000.0,55.0,22.0,1,bus_mme
+load_mme_07,load,MME Sensor 07,20000.0,55.0,22.0,1,bus_mme
+load_mme_08,load,MME Sensor 08,20000.0,66.0,26.4,1,bus_mme
+load_mme_09,load,MME Sensor 09,20000.0,82.5,33.0,1,bus_mme
+load_mme_10,load,MME Sensor 10,20000.0,99.0,39.6,1,bus_mme
+load_mfc_01,load,mFC Sensor 01,20000.0,17.5,6.0,1,bus_mfc
+load_mfc_02,load,mFC Sensor 02,20000.0,21.0,7.2,1,bus_mfc
+load_mfc_03,load,mFC Sensor 03,20000.0,24.5,8.4,1,bus_mfc
+load_mfc_04,load,mFC Sensor 04,20000.0,28.0,9.6,1,bus_mfc
+load_mfc_05,load,mFC Sensor 05,20000.0,31.5,10.8,1,bus_mfc
+load_mfc_06,load,mFC Sensor 06,20000.0,35.0,12.0,1,bus_mfc
+load_mfc_07,load,mFC Sensor 07,20000.0,35.0,12.0,1,bus_mfc
+load_mfc_08,load,mFC Sensor 08,20000.0,42.0,14.4,1,bus_mfc
+load_mfc_09,load,mFC Sensor 09,20000.0,52.5,18.0,1,bus_mfc
+load_mfc_10,load,mFC Sensor 10,20000.0,63.0,21.6,1,bus_mfc
+load_ccpd_01,load,CCPD Sensor 01,20000.0,20.0,7.5,1,bus_ccpd
+load_ccpd_02,load,CCPD Sensor 02,20000.0,24.0,9.0,1,bus_ccpd
+load_ccpd_03,load,CCPD Sensor 03,20000.0,28.0,10.5,1,bus_ccpd
+load_ccpd_04,load,CCPD Sensor 04,20000.0,32.0,12.0,1,bus_ccpd
+load_ccpd_05,load,CCPD Sensor 05,20000.0,36.0,13.5,1,bus_ccpd
+load_ccpd_06,load,CCPD Sensor 06,20000.0,40.0,15.0,1,bus_ccpd
+load_ccpd_07,load,CCPD Sensor 07,20000.0,40.0,15.0,1,bus_ccpd
+load_ccpd_08,load,CCPD Sensor 08,20000.0,48.0,18.0,1,bus_ccpd
+load_ccpd_09,load,CCPD Sensor 09,20000.0,60.0,22.5,1,bus_ccpd
+load_ccpd_10,load,CCPD Sensor 10,20000.0,72.0,27.0,1,bus_ccpd
+load_lib_01,load,LIB Sensor 01,20000.0,30.0,12.5,1,bus_lib
+load_lib_02,load,LIB Sensor 02,20000.0,36.0,15.0,1,bus_lib
+load_lib_03,load,LIB Sensor 03,20000.0,42.0,17.5,1,bus_lib
+load_lib_04,load,LIB Sensor 04,20000.0,48.0,20.0,1,bus_lib
+load_lib_05,load,LIB Sensor 05,20000.0,54.0,22.5,1,bus_lib
+load_lib_06,load,LIB Sensor 06,20000.0,60.0,25.0,1,bus_lib
+load_lib_07,load,LIB Sensor 07,20000.0,60.0,25.0,1,bus_lib
+load_lib_08,load,LIB Sensor 08,20000.0,72.0,30.0,1,bus_lib
+load_lib_09,load,LIB Sensor 09,20000.0,90.0,37.5,1,bus_lib
+load_lib_10,load,LIB Sensor 10,20000.0,108.0,45.0,1,bus_lib
+load_mega_hostel_01,load,Main panel sensor,20000.0,100.0,40.0,1,bus_mega_hostel
+load_mega_hostel_02,load,Mega Hostel Sensor 02,20000.0,50.0,20.0,1,bus_mega_hostel
