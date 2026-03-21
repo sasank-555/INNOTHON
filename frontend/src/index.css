@@ -1,9 +1,9 @@
 :root {
-  --page-bg: #efe3cf;
-  --text-main: #231813;
-  --text-muted: #6b5647;
-  --font-body: 'Segoe UI', 'Trebuchet MS', sans-serif;
-  --font-display: Georgia, 'Times New Roman', serif;
+  --page-bg: #eef3f1;
+  --text-main: #14303d;
+  --text-muted: #6f8187;
+  --font-body: 'Segoe UI', 'Aptos', sans-serif;
+  --font-display: 'Gill Sans', 'Trebuchet MS', sans-serif;
 
   font-family: var(--font-body);
   line-height: 1.5;
@@ -29,9 +29,14 @@ body,
 
 body {
   min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(27, 159, 110, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(209, 73, 73, 0.08), transparent 20%),
+    var(--page-bg);
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
