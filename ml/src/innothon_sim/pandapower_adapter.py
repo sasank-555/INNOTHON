@@ -23,7 +23,7 @@ def run_simulation(definition: NetworkDefinition) -> SimulationArtifacts:
         f_hz=definition.network.f_hz,
         sn_mva=definition.network.sn_mva,
     )
-    index_map = _build_network(net, definition)
+    index_map = _build_network(pp, net, definition)
     pp.runpp(net)
     snapshot = _extract_snapshot(net, definition, index_map)
     return SimulationArtifacts(net=net, index_map=index_map, snapshot=snapshot)
@@ -38,7 +38,11 @@ def _get_pandapower() -> Any:
         ) from error
 
 
-def _build_network(net: Any, definition: NetworkDefinition) -> dict[str, dict[str, int]]:
+def _build_network(
+    pp: Any,
+    net: Any,
+    definition: NetworkDefinition,
+) -> dict[str, dict[str, int]]:
     index_map: dict[str, dict[str, int]] = {
         "bus": {},
         "external_grid": {},
