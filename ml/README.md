@@ -27,6 +27,7 @@ ml/
       io.py
       models.py
       pandapower_adapter.py
+      service.py
   tests/
     test_io.py
 ```
@@ -77,6 +78,55 @@ Then run:
 ```powershell
 $env:PYTHONPATH="C:\Users\Lenovo\OneDrive\Documents\INNOTHON\ml\src"
 python -m innothon_sim.cli compare ml\sample_data\simple_radial_network.json readings.json
+```
+
+## Use from Python code
+
+This is the path your backend or another service should use instead of calling the CLI directly.
+
+```python
+from innothon_sim.service import compare_network_payload, simulate_network_payload
+
+network_payload = ...
+readings_payload = ...
+
+simulation = simulate_network_payload(network_payload)
+comparison = compare_network_payload(network_payload, readings_payload)
+```
+
+Returned simulation shape:
+
+```json
+{
+  "status": "ok",
+  "network_name": "simple-radial-demo",
+  "converged": true,
+  "snapshot": {
+    "...": "pandapower result data"
+  }
+}
+```
+
+Returned comparison shape:
+
+```json
+{
+  "status": "ok",
+  "network_name": "simple-radial-demo",
+  "converged": true,
+  "snapshot": {
+    "...": "pandapower result data"
+  },
+  "comparisons": [
+    {
+      "sensor_id": "sensor_bus_slack_voltage",
+      "expected": 1.0,
+      "actual": 1.0,
+      "delta": 0.0,
+      "status": "match"
+    }
+  ]
+}
 ```
 
 ## Collaboration notes

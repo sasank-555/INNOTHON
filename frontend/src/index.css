@@ -1,0 +1,37 @@
+:root {
+  --page-bg: #efe3cf;
+  --text-main: #231813;
+  --text-muted: #6b5647;
+  --font-body: 'Segoe UI', 'Trebuchet MS', sans-serif;
+  --font-display: Georgia, 'Times New Roman', serif;
+
+  font-family: var(--font-body);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-main);
+  background: var(--page-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+}
+
+button,
+input {
+  font: inherit;
+}

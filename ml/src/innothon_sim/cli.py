@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from .compare import compare_readings
-from .io import dump_json, load_network_definition, load_readings
+from .io import dump_json, load_readings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,23 +32,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    from .pandapower_adapter import run_simulation
+    from .service import compare_network_payload, simulate_network_payload
 
     args = build_parser().parse_args()
     if args.command == "simulate":
-        definition = load_network_definition(args.network_json)
-        artifacts = run_simulation(definition)
-        payload = artifacts.snapshot
+        with open(args.network_json, encoding="utf-8") as file:
+            network_payload = json.load(file)
+        response = simulate_network_payload(network_payload)
+        payload = response["snapshot"]
         if args.output:
             dump_json(args.output, payload)
         else:
             print(json.dumps(payload, indent=2))
         return 0
 
-    definition = load_network_definition(args.network_json)
-    artifacts = run_simulation(definition)
+    with open(args.network_json, encoding="utf-8") as file:
+        network_payload = json.load(file)
     readings = load_readings(args.readings_json)
-    payload = compare_readings(definition, artifacts.snapshot, readings)
+    response = compare_network_payload(network_payload, readings)
+    payload = response["comparisons"]
     if args.output:
         dump_json(args.output, payload)
     else:

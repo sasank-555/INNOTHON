@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from .exceptions import NetworkValidationError
 from .models import NetworkDefinition
@@ -9,18 +10,26 @@ from .models import NetworkDefinition
 
 def load_network_definition(path: str | Path) -> NetworkDefinition:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    return network_definition_from_payload(payload)
+
+
+def load_readings(path: str | Path) -> dict[str, float]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    return readings_from_payload(payload)
+
+
+def dump_json(path: str | Path, payload: object) -> None:
+    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def network_definition_from_payload(payload: dict[str, Any]) -> NetworkDefinition:
     network = NetworkDefinition.from_dict(payload)
     _validate_network(network)
     return network
 
 
-def load_readings(path: str | Path) -> dict[str, float]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+def readings_from_payload(payload: dict[str, Any]) -> dict[str, float]:
     return {str(key): float(value) for key, value in payload.items()}
-
-
-def dump_json(path: str | Path, payload: object) -> None:
-    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _validate_network(network: NetworkDefinition) -> None:
