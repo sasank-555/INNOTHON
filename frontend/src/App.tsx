@@ -1,6 +1,7 @@
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   MiniMap,
   ReactFlow,
@@ -19,7 +20,6 @@ import '@xyflow/react/dist/style.css'
 import {
   type DragEvent,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -75,10 +75,9 @@ function FlowEditor() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<FrontendGraphState['analysis'] | null>(null)
   const [isSyncingService, setIsSyncingService] = useState(false)
+  const [isEditingGraph, setIsEditingGraph] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [dismissedProblems, setDismissedProblems] = useState<Set<string>>(new Set())
-
-  const deferredNodes = useDeferredValue(nodes)
-  const deferredEdges = useDeferredValue(edges)
 
   const currentSnapshot = useMemo(
     () => flowToServiceSnapshot(networkId, networkName, nodes, edges, sensorReadings),
@@ -135,6 +134,7 @@ function FlowEditor() {
     setEdges(flow.edges)
     setSensorReadings(flow.sensorReadings)
     setAnalysis(state.analysis)
+    setHasUnsavedChanges(false)
     setSelectedNodeId((currentSelectedNodeId) => {
       if (currentSelectedNodeId && flow.nodes.some((node) => node.id === currentSelectedNodeId)) {
         return currentSelectedNodeId
@@ -153,49 +153,26 @@ function FlowEditor() {
     })
   }, [applyServiceState, fitView])
 
-  useEffect(() => {
-    if (!hasHydratedRef.current || nodes.length === 0) {
-      return
-    }
-
-    const nextGraph = flowToServiceSnapshot(
-      networkId,
-      networkName,
-      deferredNodes,
-      deferredEdges,
-      sensorReadings,
-    ).graph
-    const nextGraphSignature = JSON.stringify(nextGraph)
-    if (nextGraphSignature === lastSyncedGraphRef.current) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setIsSyncingService(true)
-      void updateServiceGraph(networkId, nextGraph)
-        .then((state) => {
-          applyServiceState(state)
-        })
-        .finally(() => {
-          setIsSyncingService(false)
-        })
-    }, 420)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [applyServiceState, deferredEdges, deferredNodes, networkId, networkName, nodes.length, sensorReadings])
-
   const onNodesChange = useCallback((changes: NodeChange<PowerFlowNode>[]) => {
+    if (
+      isEditingGraph &&
+      changes.some((change) => change.type !== 'select' && change.type !== 'dimensions')
+    ) {
+      setHasUnsavedChanges(true)
+    }
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
-  }, [])
+  }, [isEditingGraph])
 
   const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => {
     setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
   }, [])
 
   const onConnect = useCallback((connection: Connection) => {
+    if (!isEditingGraph) {
+      return
+    }
     setDismissedProblems(new Set())
+    setHasUnsavedChanges(true)
     setEdges((currentEdges) =>
       addEdge(
         {
@@ -206,16 +183,20 @@ function FlowEditor() {
         currentEdges,
       ),
     )
-  }, [])
+  }, [isEditingGraph])
 
   const addNodeFromTemplate = useCallback(
     (kind: PowerNodeKind, position?: { x: number; y: number }) => {
+      if (!isEditingGraph) {
+        return
+      }
       const node = createNode(kind, position ?? { x: 240, y: 220 }, nextIdRef.current++)
       setDismissedProblems(new Set())
+      setHasUnsavedChanges(true)
       setNodes((currentNodes) => [...currentNodes, node])
       setSelectedNodeId(node.id)
     },
-    [],
+    [isEditingGraph],
   )
 
   const onDragStart = useCallback((event: DragEvent<HTMLButtonElement>, kind: PowerNodeKind) => {
@@ -224,12 +205,18 @@ function FlowEditor() {
   }, [])
 
   const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!isEditingGraph) {
+      return
+    }
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
-  }, [])
+  }, [isEditingGraph])
 
   const onDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
+      if (!isEditingGraph) {
+        return
+      }
       event.preventDefault()
       const kind = event.dataTransfer.getData('application/x-innothon-node') as PowerNodeKind
       if (!kind || !wrapperRef.current) {
@@ -241,15 +228,16 @@ function FlowEditor() {
       })
       addNodeFromTemplate(kind, position)
     },
-    [addNodeFromTemplate, screenToFlowPosition],
+    [addNodeFromTemplate, isEditingGraph, screenToFlowPosition],
   )
 
   const updateSelectedNode = useCallback(
     (patch: Partial<PowerNodeData>) => {
-      if (!selectedNodeId) {
+      if (!selectedNodeId || !isEditingGraph) {
         return
       }
       setDismissedProblems(new Set())
+      setHasUnsavedChanges(true)
       setNodes((currentNodes) =>
         currentNodes.map((node) =>
           node.id === selectedNodeId
@@ -264,13 +252,14 @@ function FlowEditor() {
         ),
       )
     },
-    [selectedNodeId],
+    [isEditingGraph, selectedNodeId],
   )
 
   const removeSelectedNode = useCallback(() => {
-    if (!selectedNodeId) {
+    if (!selectedNodeId || !isEditingGraph) {
       return
     }
+    setHasUnsavedChanges(true)
     setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNodeId))
     setEdges((currentEdges) =>
       currentEdges.filter(
@@ -286,14 +275,18 @@ function FlowEditor() {
       return next
     })
     setSelectedNodeId(null)
-  }, [selectedNodeId])
+  }, [isEditingGraph, selectedNodeId])
 
   const handleTurnOff = useCallback((problem: ProblemNode) => {
+    if (!isEditingGraph) {
+      return
+    }
     setDismissedProblems((current) => {
       const next = new Set(current)
       next.add(problem.id)
       return next
     })
+    setHasUnsavedChanges(true)
     setNodes((currentNodes) =>
       currentNodes.map((node) =>
         node.id === problem.id
@@ -309,7 +302,7 @@ function FlowEditor() {
           : node,
       ),
     )
-  }, [])
+  }, [isEditingGraph])
 
   const handleKeepAlive = useCallback((problem: ProblemNode) => {
     setDismissedProblems((current) => {
@@ -319,6 +312,22 @@ function FlowEditor() {
     })
   }, [])
 
+  const saveGraph = useCallback(() => {
+    if (!hasUnsavedChanges || isSyncingService) {
+      return
+    }
+
+    setIsSyncingService(true)
+    void updateServiceGraph(networkId, currentSnapshot.graph)
+      .then((state) => {
+        applyServiceState(state)
+        setIsEditingGraph(false)
+      })
+      .finally(() => {
+        setIsSyncingService(false)
+      })
+  }, [applyServiceState, currentSnapshot.graph, hasUnsavedChanges, isSyncingService, networkId])
+
   return (
     <div className="app-shell">
       <aside className="sidebar sidebar--left">
@@ -327,7 +336,7 @@ function FlowEditor() {
           <h1 className="title">{networkName}</h1>
           <p className="lede">
             Service X provides the graph and sensor readings. This editor renders the
-            network, runs the model, and sends graph updates back when the user changes it.
+            network, runs the model, and only sends graph updates after the user saves.
           </p>
         </div>
 
@@ -338,6 +347,7 @@ function FlowEditor() {
               <button
                 key={template.kind}
                 className="palette__item"
+                disabled={!isEditingGraph}
                 draggable
                 onDragStart={(event) => onDragStart(event, template.kind)}
                 onClick={() => addNodeFromTemplate(template.kind)}
@@ -363,7 +373,13 @@ function FlowEditor() {
             </span>
           </div>
           <div className="status-card">
-            <strong>{isSyncingService ? 'Pushing update to service X...' : 'Service X synced'}</strong>
+            <strong>
+              {isSyncingService
+                ? 'Saving graph to service X...'
+                : hasUnsavedChanges
+                  ? 'Draft changes waiting to be saved'
+                  : 'Service X synced'}
+            </strong>
             <span>{currentSnapshot.network.id}</span>
           </div>
         </div>
@@ -371,12 +387,37 @@ function FlowEditor() {
 
       <main className="canvas-shell">
         <div className="canvas-toolbar">
-          <button className="toolbar-button" onClick={() => fitView({ padding: 0.18 })}>
-            Fit graph
-          </button>
-          <button className="toolbar-button" onClick={removeSelectedNode} disabled={!selectedNode}>
-            Remove selected
-          </button>
+          <div className="toolbar-actions">
+            <button className="toolbar-button" onClick={() => fitView({ padding: 0.18 })}>
+              Fit graph
+            </button>
+            <button
+              className={`toolbar-button ${isEditingGraph ? 'toolbar-button--secondary' : ''}`}
+              onClick={() => setIsEditingGraph(true)}
+              disabled={isEditingGraph}
+            >
+              Change graph
+            </button>
+            <button
+              className="toolbar-button toolbar-button--accent"
+              onClick={saveGraph}
+              disabled={!isEditingGraph || !hasUnsavedChanges || isSyncingService}
+            >
+              Save graph
+            </button>
+            <button
+              className="toolbar-button"
+              onClick={removeSelectedNode}
+              disabled={!selectedNode || !isEditingGraph}
+            >
+              Remove selected
+            </button>
+          </div>
+          <div className="toolbar-hint">
+            {isEditingGraph
+              ? 'Link nodes by dragging from the right handle of one node to the left handle of another.'
+              : 'Click Change graph to enable moving, linking, and editing nodes.'}
+          </div>
           <div className="legend">
             <span><i className="legend__dot legend__dot--high" /> High</span>
             <span><i className="legend__dot legend__dot--low" /> Low</span>
@@ -398,6 +439,10 @@ function FlowEditor() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            connectionMode={ConnectionMode.Loose}
+            nodesDraggable={isEditingGraph}
+            nodesConnectable={isEditingGraph}
+            elementsSelectable
             fitView
             deleteKeyCode={['Backspace', 'Delete']}
             onSelectionChange={({ nodes: selectedNodes }) => {
@@ -425,6 +470,7 @@ function FlowEditor() {
                 Label
                 <input
                   value={selectedNode.data.label}
+                  disabled={!isEditingGraph}
                   onChange={(event) => updateSelectedNode({ label: event.target.value })}
                 />
               </label>
@@ -434,6 +480,7 @@ function FlowEditor() {
                   type="number"
                   min="0"
                   value={selectedNode.data.nominalPowerKw}
+                  disabled={!isEditingGraph}
                   onChange={(event) =>
                     updateSelectedNode({
                       nominalPowerKw: Number(event.target.value) || 0,
@@ -445,6 +492,7 @@ function FlowEditor() {
                 <input
                   type="checkbox"
                   checked={selectedNode.data.active}
+                  disabled={!isEditingGraph}
                   onChange={(event) => updateSelectedNode({ active: event.target.checked })}
                 />
                 <span>Node active</span>
@@ -480,7 +528,9 @@ function FlowEditor() {
                     <p>{problem.recommendation}</p>
                   </div>
                   <div className="problem-card__actions">
-                    <button onClick={() => handleTurnOff(problem)}>Turn off</button>
+                    <button onClick={() => handleTurnOff(problem)} disabled={!isEditingGraph}>
+                      Turn off
+                    </button>
                     <button className="ghost-button" onClick={() => handleKeepAlive(problem)}>
                       No, it&apos;s fine
                     </button>
