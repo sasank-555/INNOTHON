@@ -32,76 +32,235 @@ class GraphUpdateRequest(BaseModel):
     graph: dict[str, Any]
 
 
-INITIAL_SNAPSHOT: dict[str, Any] = {
+INITIAL_SNAPSHOT: dict[str, Any] ={
     "network": {
-        "id": "network-alpha",
-        "name": "North Feeder",
+        "id": "network-beta",
+        "name": "Smart Distribution Grid",
     },
     "graph": {
         "nodes": [
             {
-                "id": "node-source-1",
+                "id": "source-grid",
                 "type": "source",
-                "label": "Grid Source",
-                "x": 80,
-                "y": 120,
+                "label": "Main Grid",
+                "x": 50,
+                "y": 200,
+                "nominalPowerKw": 500,
+                "active": True,
+            },
+            {
+                "id": "source-solar",
+                "type": "source",
+                "label": "Solar Plant",
+                "x": 50,
+                "y": 50,
+                "nominalPowerKw": 150,
+                "active": True,
+            },
+            {
+                "id": "transformer-1",
+                "type": "transformer",
+                "label": "T1",
+                "x": 250,
+                "y": 200,
+                "nominalPowerKw": 300,
+                "active": True,
+            },
+            {
+                "id": "transformer-2",
+                "type": "transformer",
+                "label": "T2",
+                "x": 250,
+                "y": 50,
+                "nominalPowerKw": 250,
+                "active": True,
+            },
+            {
+                "id": "switch-1",
+                "type": "switch",
+                "label": "Switch A",
+                "x": 400,
+                "y": 200,
+                "active": True,
+            },
+            {
+                "id": "switch-2",
+                "type": "switch",
+                "label": "Switch B",
+                "x": 400,
+                "y": 50,
+                "active": True,
+            },
+            {
+                "id": "transformer-3",
+                "type": "transformer",
+                "label": "T3",
+                "x": 550,
+                "y": 125,
+                "nominalPowerKw": 200,
+                "active": True,
+            },
+            {
+                "id": "sink-industrial-1",
+                "type": "sink",
+                "label": "Factory A",
+                "x": 750,
+                "y": 200,
+                "nominalPowerKw": 180,
+                "active": True,
+            },
+            {
+                "id": "sink-industrial-2",
+                "type": "sink",
+                "label": "Factory B",
+                "x": 750,
+                "y": 50,
+                "nominalPowerKw": 150,
+                "active": True,
+            },
+            {
+                "id": "sink-residential-1",
+                "type": "sink",
+                "label": "Residential A",
+                "x": 900,
+                "y": 200,
                 "nominalPowerKw": 120,
                 "active": True,
             },
             {
-                "id": "node-transformer-1",
-                "type": "transformer",
-                "label": "Transformer",
-                "x": 360,
-                "y": 120,
-                "nominalPowerKw": 88,
-                "active": True,
-            },
-            {
-                "id": "node-sink-1",
+                "id": "sink-residential-2",
                 "type": "sink",
-                "label": "Industrial Sink",
-                "x": 680,
-                "y": 120,
-                "nominalPowerKw": 96,
+                "label": "Residential B",
+                "x": 900,
+                "y": 50,
+                "nominalPowerKw": 100,
                 "active": True,
             },
         ],
         "edges": [
             {
-                "id": "edge-source-transformer",
-                "source": "node-source-1",
-                "target": "node-transformer-1",
+                "id": "e1",
+                "source": "source-grid",
+                "target": "transformer-1",
             },
             {
-                "id": "edge-transformer-sink",
-                "source": "node-transformer-1",
-                "target": "node-sink-1",
+                "id": "e2",
+                "source": "source-grid",
+                "target": "transformer-2",
+            },
+            {
+                "id": "e3",
+                "source": "source-solar",
+                "target": "transformer-2",
+            },
+            {
+                "id": "e4",
+                "source": "transformer-1",
+                "target": "switch-1",
+            },
+            {
+                "id": "e5",
+                "source": "switch-1",
+                "target": "transformer-3",
+            },
+            {
+                "id": "e6",
+                "source": "transformer-2",
+                "target": "switch-2",
+            },
+            {
+                "id": "e7",
+                "source": "switch-2",
+                "target": "transformer-3",
+            },
+            {
+                "id": "e8",
+                "source": "transformer-3",
+                "target": "sink-industrial-1",
+            },
+            {
+                "id": "e9",
+                "source": "transformer-3",
+                "target": "sink-industrial-2",
+            },
+            {
+                "id": "e10",
+                "source": "transformer-3",
+                "target": "sink-residential-1",
+            },
+            {
+                "id": "e11",
+                "source": "transformer-3",
+                "target": "sink-residential-2",
             },
         ],
     },
     "sensorReadings": [
         {
-            "nodeId": "node-source-1",
-            "powerKw": 118,
-            "voltageKv": 20,
+            "nodeId": "source-grid",
+            "powerKw": 470,
+            "voltageKv": 33,
+            "temperatureC": 34,
             "timestamp": "2026-03-21T10:30:00Z",
         },
         {
-            "nodeId": "node-transformer-1",
-            "powerKw": 92,
+            "nodeId": "source-solar",
+            "powerKw": 110,
             "voltageKv": 11,
+            "temperatureC": 36,
             "timestamp": "2026-03-21T10:30:00Z",
         },
         {
-            "nodeId": "node-sink-1",
-            "powerKw": 124,
+            "nodeId": "transformer-1",
+            "powerKw": 310,
             "voltageKv": 11,
+            "temperatureC": 42,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "transformer-2",
+            "powerKw": 260,
+            "voltageKv": 11,
+            "temperatureC": 43,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "transformer-3",
+            "powerKw": 330,
+            "voltageKv": 11,
+            "temperatureC": 47,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "sink-industrial-1",
+            "powerKw": 210,
+            "voltageKv": 11,
+            "temperatureC": 39,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "sink-industrial-2",
+            "powerKw": 140,
+            "voltageKv": 11,
+            "temperatureC": 38,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "sink-residential-1",
+            "powerKw": 135,
+            "voltageKv": 11,
+            "temperatureC": 35,
+            "timestamp": "2026-03-21T10:30:00Z",
+        },
+        {
+            "nodeId": "sink-residential-2",
+            "powerKw": 90,
+            "voltageKv": 11,
+            "temperatureC": 34,
             "timestamp": "2026-03-21T10:30:00Z",
         },
     ],
 }
-
 SERVICE_STATE: dict[str, Any] = deepcopy(INITIAL_SNAPSHOT)
 
 
@@ -146,7 +305,7 @@ def build_frontend_state(snapshot: dict[str, Any]) -> dict[str, Any]:
 def graph_to_ml_payload(
     snapshot: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, float], dict[str, str]]:
-    nodes = deepcopy(snapshot["graph"]["nodes"])
+    nodes = [normalize_graph_node(node) for node in deepcopy(snapshot["graph"]["nodes"])]
     edges: list[dict[str, Any]] = snapshot["graph"]["edges"]
     sensor_readings: list[dict[str, Any]] = snapshot["sensorReadings"]
     node_ids = {node["id"] for node in nodes}
@@ -278,7 +437,7 @@ def comparison_to_frontend_analysis(
     comparison: dict[str, Any],
     sensor_to_node: dict[str, str],
 ) -> dict[str, Any]:
-    nodes = snapshot["graph"]["nodes"]
+    nodes = [normalize_graph_node(node) for node in snapshot["graph"]["nodes"]]
     comparison_by_node = {
         sensor_to_node[item["sensor_id"]]: item for item in comparison["comparisons"]
     }
@@ -356,7 +515,8 @@ def reconcile_sensor_readings(
     current_by_node_id = {reading["nodeId"]: reading for reading in current_readings}
     next_timestamp = "2026-03-21T10:45:00Z"
     results = []
-    for node in nodes:
+    for raw_node in nodes:
+        node = normalize_graph_node(raw_node)
         existing = current_by_node_id.get(node["id"], {})
         power_kw = 0 if not node["active"] else max(0, round(node["nominalPowerKw"] * sensor_factor(node["type"])))
         results.append(
@@ -421,3 +581,21 @@ def ext_grid_id_for(node_id: str) -> str:
 
 def sensor_id_for(node_id: str) -> str:
     return f"sensor_{node_id}"
+
+
+def normalize_graph_node(node: dict[str, Any]) -> dict[str, Any]:
+    data = node.get("data", {})
+    position = node.get("position", {})
+    node_type = node.get("type")
+    if node_type == "powerNode":
+        node_type = data.get("kind", "sink")
+
+    return {
+        "id": node.get("id"),
+        "type": node_type or data.get("kind", "sink"),
+        "label": node.get("label", data.get("label", node.get("id", "Node"))),
+        "x": node.get("x", position.get("x", 0)),
+        "y": node.get("y", position.get("y", 0)),
+        "nominalPowerKw": float(node.get("nominalPowerKw", data.get("nominalPowerKw", 0.0)) or 0.0),
+        "active": bool(node.get("active", data.get("active", True))),
+    }
