@@ -1,0 +1,42 @@
+:root {
+  --page-bg: #eef3f1;
+  --text-main: #14303d;
+  --text-muted: #6f8187;
+  --font-body: 'Segoe UI', 'Aptos', sans-serif;
+  --font-display: 'Gill Sans', 'Trebuchet MS', sans-serif;
+
+  font-family: var(--font-body);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text-main);
+  background: var(--page-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(27, 159, 110, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(209, 73, 73, 0.08), transparent 20%),
+    var(--page-bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
