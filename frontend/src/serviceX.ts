@@ -53,12 +53,25 @@ export type NitwReference = {
     vn_kv?: number
     type?: string
   }>
+  buildings?: Array<{
+    id: string
+    name: string
+    bus_id: string
+    lat: number
+    long: number
+    gateway_hardware_id?: string
+    sensor_count?: number
+    p_mw?: number
+    q_mvar?: number
+  }>
   external_grids?: Array<Record<string, unknown>>
   lines?: Array<Record<string, unknown>>
   loads: Array<{
     id: string
     name: string
     bus_id: string
+    building_id?: string
+    sensor_index?: number
     p_mw: number
     q_mvar: number
     lat: number

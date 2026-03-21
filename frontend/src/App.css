@@ -257,10 +257,15 @@
   border-radius: 1rem;
   padding: 0.82rem 0.9rem;
   text-align: left;
+  color: inherit;
 }
 
 .legend-row {
   cursor: default;
+}
+
+button.building-row {
+  cursor: pointer;
 }
 
 .kicker {
@@ -391,6 +396,135 @@
   color: #eef8f4;
 }
 
+.panel-action-row {
+  display: flex;
+  margin-top: 0.9rem;
+}
+
+.sensor-section {
+  margin-top: 1rem;
+}
+
+.sensor-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.sensor-list--modal {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.sensor-card {
+  border-radius: 1rem;
+  padding: 0.9rem;
+  background: rgba(244, 248, 247, 0.92);
+  border: 1px solid rgba(14, 48, 61, 0.08);
+}
+
+.sensor-card--modal {
+  min-height: 220px;
+}
+
+.sensor-card__header,
+.sensor-card__metrics {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sensor-card__header {
+  margin-bottom: 0.75rem;
+}
+
+.sensor-card__header--split {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.8rem;
+}
+
+.sensor-card__header span,
+.sensor-card__metrics span {
+  color: var(--text-muted);
+}
+
+.sensor-card__metrics--grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 31, 39, 0.48);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  z-index: 1200;
+}
+
+.building-modal {
+  width: min(1280px, 100%);
+  max-height: calc(100vh - 3rem);
+  overflow: auto;
+  border-radius: 1.6rem;
+  padding: 1.2rem;
+  background: linear-gradient(180deg, rgba(250, 252, 251, 0.98), rgba(240, 247, 245, 0.96));
+  box-shadow: 0 36px 90px rgba(10, 27, 34, 0.28);
+  border: 1px solid rgba(14, 48, 61, 0.1);
+}
+
+.building-modal__header,
+.building-modal__actions,
+.building-modal__toolbar {
+  display: flex;
+}
+
+.building-modal__header {
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.building-modal__actions {
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.building-modal__summary {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-bottom: 1rem;
+}
+
+.building-modal__toolbar {
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.building-modal__content {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.modal-side,
+.modal-main {
+  min-width: 0;
+}
+
+.modal-composer {
+  margin-bottom: 1rem;
+}
+
+.modal-composer__grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.sensor-section--modal {
+  margin-top: 0;
+}
+
 @media (max-width: 1120px) {
   .network-layout {
     flex-direction: column;
@@ -434,5 +568,19 @@
 
   .header-stat {
     flex: 1 1 150px;
+  }
+
+  .building-modal {
+    padding: 1rem;
+    max-height: calc(100vh - 1.5rem);
+  }
+
+  .building-modal__header,
+  .building-modal__actions,
+  .building-modal__content,
+  .sensor-card__header--split {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

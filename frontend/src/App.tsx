@@ -13,41 +13,15 @@ import {
   fetchNitwReference,
   loginUser,
   registerUser,
+  syncNetwork,
   type DeviceRecord,
   type NitwReference,
-  syncNetwork,
 } from './serviceX'
 
 type AuthMode = 'login' | 'register'
-type NodeVisualStatus = 'unclaimed' | 'healthy' | 'deviation'
-type NodeReviewDecision = 'normal' | 'anomaly'
-
-type Session = {
-  token: string
-  email: string
-}
-
-type CampusNode = {
-  id: string
-  hardwareId: string
-  name: string
-  lat: number
-  lng: number
-  busId: string
-  sensorId: string
-  expectedMw: number
-  currentMw: number
-  comparedExpectedMw: number | null
-  comparedActualMw: number | null
-  deltaMw: number | null
-  comparisonStatus: string | null
-  reviewDecision: NodeReviewDecision | null
-  claimCount: number
-  claimedByCurrentUser: boolean
-  status: NodeVisualStatus
-  claimPasswordHint: string
-}
-
+type VisualStatus = 'unclaimed' | 'healthy' | 'deviation'
+type SensorReviewDecision = 'normal' | 'anomaly'
+type Session = { token: string; email: string }
 type ComparisonRecord = {
   sensor_id: string
   element_type: string
@@ -59,15 +33,38 @@ type ComparisonRecord = {
   absolute_delta: number | null
   status: string
 }
-
-type DraftNode = {
+type BuildingSensor = {
+  id: string
+  name: string
+  sensorId: string
+  sensorIndex: number
+  expectedMw: number
+  currentMw: number
+  comparedExpectedMw: number | null
+  comparedActualMw: number | null
+  deltaMw: number | null
+  comparisonStatus: string | null
+  reviewDecision: SensorReviewDecision | null
+  status: VisualStatus
+}
+type CampusBuilding = {
+  id: string
+  hardwareId: string
   name: string
   lat: number
   lng: number
-  pMw: string
-  qMvar: string
-  vnKv: string
+  busId: string
+  expectedMw: number
+  currentMw: number
+  sensorCount: number
+  claimCount: number
+  claimedByCurrentUser: boolean
+  status: VisualStatus
+  claimPasswordHint: string
+  sensors: BuildingSensor[]
 }
+type DraftBuilding = { name: string; lat: number; lng: number; firstSensorName: string; pMw: string; qMvar: string; vnKv: string }
+type DraftSensor = { name: string; pMw: string; qMvar: string }
 
 const SESSION_KEY = 'innothon-session'
 const CAMPUS_CENTER: LatLngExpression = [17.98369646253154, 79.53082786635768]
@@ -87,12 +84,11 @@ function App() {
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
-
   const [inventory, setInventory] = useState<DeviceRecord[]>([])
   const [claimedDevices, setClaimedDevices] = useState<DeviceRecord[]>([])
   const [nitwReference, setNitwReference] = useState<NitwReference | null>(null)
   const [compareByElementId, setCompareByElementId] = useState<Record<string, ComparisonRecord>>({})
-  const [selectedHardwareId, setSelectedHardwareId] = useState<string>('')
+  const [selectedBuildingId, setSelectedBuildingId] = useState('')
   const [claimPasswords, setClaimPasswords] = useState<Record<string, string>>({})
   const [claimErrorByHardwareId, setClaimErrorByHardwareId] = useState<Record<string, string>>({})
   const [claimBusyHardwareId, setClaimBusyHardwareId] = useState<string | null>(null)
@@ -100,114 +96,112 @@ function App() {
   const [pageBusy, setPageBusy] = useState(false)
   const [superviseBusy, setSuperviseBusy] = useState(false)
   const [supervised, setSupervised] = useState(false)
-  const [addNodeMode, setAddNodeMode] = useState(false)
-  const [draftNode, setDraftNode] = useState<DraftNode | null>(null)
-  const [saveNodeBusy, setSaveNodeBusy] = useState(false)
-  const [saveNodeError, setSaveNodeError] = useState('')
-  const [reviewByNodeId, setReviewByNodeId] = useState<Record<string, NodeReviewDecision>>({})
+  const [reviewBySensorId, setReviewBySensorId] = useState<Record<string, SensorReviewDecision>>({})
+  const [showBuildingModal, setShowBuildingModal] = useState(false)
+  const [addBuildingMode, setAddBuildingMode] = useState(false)
+  const [draftBuilding, setDraftBuilding] = useState<DraftBuilding | null>(null)
+  const [saveBuildingBusy, setSaveBuildingBusy] = useState(false)
+  const [saveBuildingError, setSaveBuildingError] = useState('')
+  const [addSensorMode, setAddSensorMode] = useState(false)
+  const [draftSensor, setDraftSensor] = useState<DraftSensor | null>(null)
+  const [saveSensorBusy, setSaveSensorBusy] = useState(false)
+  const [saveSensorError, setSaveSensorError] = useState('')
 
   useEffect(() => {
-    if (!session) {
-      return
-    }
-
-    void loadDashboard(session.token, false)
+    if (session) void loadDashboard(session.token, false)
   }, [session])
 
-  const nodes = useMemo<CampusNode[]>(() => {
-    if (!nitwReference) {
-      return []
+  const buildings = useMemo<CampusBuilding[]>(() => {
+    if (!nitwReference) return []
+    const buildingRows = normalizedBuildings(nitwReference)
+    const inv = new Map(inventory.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
+    const claimed = new Map(claimedDevices.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
+    const loadsByBuildingId = new Map<string, NitwReference['loads']>()
+    for (const load of nitwReference.loads) {
+      const buildingId = load.building_id ?? `building_${slugify(load.name || load.id || load.bus_id)}`
+      const current = loadsByBuildingId.get(buildingId) ?? []
+      current.push(load)
+      loadsByBuildingId.set(buildingId, current)
     }
-
-    const inventoryByHardwareId = new Map(inventory.map((device) => [device.hardwareId, device]))
-    const claimedByHardwareId = new Map(claimedDevices.map((device) => [device.hardwareId, device]))
-    const linkByElementId = new Map(
-      nitwReference.sensor_links
-        .filter((link) => link.element_type === 'load')
-        .map((link) => [link.element_id, link.sensor_id]),
-    )
-
-    return nitwReference.loads
-      .map((load) => {
-        const hardwareId = hardwareIdForLoadId(load.id)
-        const inventoryDevice = inventoryByHardwareId.get(hardwareId)
-        const sensorId = linkByElementId.get(load.id) ?? inventoryDevice?.sensorManifest[0]?.sensorId ?? ''
-        const claimedDevice = claimedByHardwareId.get(hardwareId)
-        const latestReading = claimedDevice?.latestReadings[0]
-        const expectedMw = load.p_mw ?? 0
-        const currentMw = typeof latestReading?.value === 'number' ? latestReading.value : fakeReadingForLoad(load)
-        const comparisonStatus = compareByElementId[load.id]
-        const comparedExpectedMw = comparisonStatus?.expected ?? null
-        const comparedActualMw = comparisonStatus?.actual ?? null
-        const deltaMw = comparisonStatus?.delta ?? null
-        const reviewDecision = reviewByNodeId[load.id] ?? null
-        const claimedByCurrentUser = Boolean(claimedDevice)
-
-        let status: NodeVisualStatus = 'unclaimed'
-        if (claimedByCurrentUser && supervised) {
-          status = comparisonStatus?.status === 'deviation' || comparisonStatus?.status === 'topology_issue' ? 'deviation' : 'healthy'
-        }
-        if (reviewDecision === 'normal') {
-          status = 'healthy'
-        }
-
+    const linkByElementId = new Map(nitwReference.sensor_links.filter((l) => l.element_type === 'load').map((l) => [l.element_id, l.sensor_id]))
+    return buildingRows.map((building) => {
+      const hardwareId = building.gateway_hardware_id ?? hardwareIdForBuildingId(building.id)
+      const inventoryDevice = inv.get(hardwareId)
+      const claimedDevice = claimed.get(hardwareId)
+      const readingBySensorId = new Map((claimedDevice?.latestReadings ?? []).map((r) => [r.sensorId, r]))
+      const sensors = (loadsByBuildingId.get(building.id) ?? []).map((load) => {
+        const sensorId = linkByElementId.get(load.id) ?? `sensor_${load.id}`
+        const latest = readingBySensorId.get(sensorId)
+        const currentMw = typeof latest?.value === 'number' ? latest.value : fakeReadingForLoad(load)
+        const comparison = compareByElementId[load.id]
+        const reviewDecision = reviewBySensorId[load.id] ?? null
+        let status: VisualStatus = 'unclaimed'
+        if (claimedDevice && supervised) status = isProblemComparisonStatus(comparison?.status ?? null) ? 'deviation' : 'healthy'
+        if (reviewDecision === 'normal') status = 'healthy'
         return {
           id: load.id,
-          hardwareId,
-          name: load.name || inventoryDevice?.displayName || hardwareId,
-          lat: load.lat ?? inventoryDevice?.latitude ?? 0,
-          lng: load.long ?? inventoryDevice?.longitude ?? 0,
-          busId: load.bus_id ?? '',
+          name: load.name,
           sensorId,
-          expectedMw,
+          sensorIndex: load.sensor_index ?? extractSensorIndex(load.id),
+          expectedMw: load.p_mw ?? 0,
           currentMw,
-          comparedExpectedMw,
-          comparedActualMw,
-          deltaMw,
-          comparisonStatus: comparisonStatus?.status ?? null,
+          comparedExpectedMw: comparison?.expected ?? null,
+          comparedActualMw: comparison?.actual ?? null,
+          deltaMw: comparison?.delta ?? null,
+          comparisonStatus: comparison?.status ?? null,
           reviewDecision,
-          claimCount: inventoryDevice?.claimCount ?? 0,
-          claimedByCurrentUser,
           status,
-          claimPasswordHint: `claim-${load.id}`,
         }
-      })
-      .sort((left, right) => left.name.localeCompare(right.name))
-  }, [claimedDevices, compareByElementId, inventory, nitwReference, reviewByNodeId, supervised])
+      }).sort((a, b) => a.sensorIndex - b.sensorIndex || a.name.localeCompare(b.name))
+      const buildingStatus: VisualStatus =
+        claimedDevice && supervised && sensors.some((s) => s.status === 'deviation')
+          ? 'deviation'
+          : claimedDevice && supervised
+            ? 'healthy'
+            : 'unclaimed'
+      return {
+        id: building.id,
+        hardwareId,
+        name: building.name,
+        lat: building.lat,
+        lng: building.long,
+        busId: building.bus_id,
+        expectedMw: sum(sensors.map((s) => s.expectedMw)),
+        currentMw: sum(sensors.map((s) => s.currentMw)),
+        sensorCount: sensors.length || building.sensor_count || 0,
+        claimCount: inventoryDevice?.claimCount ?? 0,
+        claimedByCurrentUser: Boolean(claimedDevice),
+        status: buildingStatus,
+        claimPasswordHint: `claim-${building.id}`,
+        sensors,
+      }
+    }).sort((a, b) => a.name.localeCompare(b.name))
+  }, [claimedDevices, compareByElementId, inventory, nitwReference, reviewBySensorId, supervised])
 
-  const selectedNode = nodes.find((node) => node.hardwareId === selectedHardwareId) ?? nodes[0] ?? null
-
-  const stats = useMemo(() => {
-    const claimed = nodes.filter((node) => node.claimedByCurrentUser).length
-    const blue = nodes.filter((node) => node.status === 'unclaimed').length
-    const red = nodes.filter((node) => node.status === 'deviation').length
-    const green = nodes.filter((node) => node.status === 'healthy').length
-    return { claimed, blue, red, green }
-  }, [nodes])
+  const selectedBuilding = buildings.find((b) => b.id === selectedBuildingId) ?? buildings[0] ?? null
+  const stats = useMemo(() => ({
+    claimed: buildings.filter((b) => b.claimedByCurrentUser).length,
+    blue: buildings.filter((b) => b.status === 'unclaimed').length,
+    red: buildings.filter((b) => b.status === 'deviation').length,
+    green: buildings.filter((b) => b.status === 'healthy').length,
+    sensors: buildings.reduce((total, b) => total + b.sensorCount, 0),
+  }), [buildings])
 
   async function loadDashboard(token: string, runSupervision: boolean) {
     setPageBusy(true)
     setPageError('')
     try {
-      const [inventoryData, claimedData, nitwData] = await Promise.all([
-        fetchInventory(token),
-        fetchClaimedDevices(token),
-        fetchNitwReference(token),
-      ])
-
+      const [inventoryData, claimedData, nitwData] = await Promise.all([fetchInventory(token), fetchClaimedDevices(token), fetchNitwReference(token)])
       setInventory(inventoryData)
       setClaimedDevices(claimedData)
       setNitwReference(nitwData)
-      setSelectedHardwareId((current) => current || hardwareIdForLoadId(nitwData.loads[0]?.id) || inventoryData[0]?.hardwareId || '')
-
+      setSelectedBuildingId((current) => current || normalizedBuildings(nitwData)[0]?.id || '')
       if (!runSupervision) {
         setCompareByElementId({})
         setSupervised(false)
         return
       }
-
-      const comparisonIndex = await superviseNodes(token, inventoryData, claimedData, nitwData)
-      setCompareByElementId(comparisonIndex)
+      setCompareByElementId(await superviseBuildings(token, claimedData, nitwData))
       setSupervised(true)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Failed to load dashboard')
@@ -221,8 +215,7 @@ function App() {
     setAuthBusy(true)
     setAuthError('')
     try {
-      const result =
-        authMode === 'register' ? await registerUser(email.trim(), password) : await loginUser(email.trim(), password)
+      const result = authMode === 'register' ? await registerUser(email.trim(), password) : await loginUser(email.trim(), password)
       const nextSession = { token: result.access_token, email: result.user.email }
       window.localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession))
       setSession(nextSession)
@@ -236,50 +229,34 @@ function App() {
   }
 
   async function handleClaim(hardwareId: string) {
-    if (!session) {
-      return
-    }
-
+    if (!session) return
     const claimPassword = claimPasswords[hardwareId]?.trim()
     if (!claimPassword) {
-      setClaimErrorByHardwareId((current) => ({
-        ...current,
-        [hardwareId]: 'Enter the node password to claim it.',
-      }))
+      setClaimErrorByHardwareId((current) => ({ ...current, [hardwareId]: 'Enter the building password to claim it.' }))
       return
     }
-
     setClaimBusyHardwareId(hardwareId)
     setClaimErrorByHardwareId((current) => ({ ...current, [hardwareId]: '' }))
     try {
       await claimDevice(session.token, hardwareId, claimPassword)
       await loadDashboard(session.token, supervised)
     } catch (error) {
-      setClaimErrorByHardwareId((current) => ({
-        ...current,
-        [hardwareId]: error instanceof Error ? error.message : 'Claim failed',
-      }))
+      setClaimErrorByHardwareId((current) => ({ ...current, [hardwareId]: error instanceof Error ? error.message : 'Claim failed' }))
     } finally {
       setClaimBusyHardwareId(null)
     }
   }
 
   async function handleSupervise() {
-    if (!session) {
-      return
-    }
-
+    if (!session) return
     setSuperviseBusy(true)
     setPageError('')
     try {
-      const inventoryData = inventory.length ? inventory : await fetchInventory(session.token)
       const claimedData = claimedDevices.length ? claimedDevices : await fetchClaimedDevices(session.token)
-      const nitwData = nitwReference ?? (await fetchNitwReference(session.token))
-      const comparisonIndex = await superviseNodes(session.token, inventoryData, claimedData, nitwData)
-      setInventory(inventoryData)
+      const nitwData = nitwReference ?? await fetchNitwReference(session.token)
       setClaimedDevices(claimedData)
       setNitwReference(nitwData)
-      setCompareByElementId(comparisonIndex)
+      setCompareByElementId(await superviseBuildings(session.token, claimedData, nitwData))
       setSupervised(true)
     } catch (error) {
       setPageError(error instanceof Error ? error.message : 'Supervision failed')
@@ -288,51 +265,94 @@ function App() {
     }
   }
 
-  async function handleSaveNode() {
-    if (!session || !nitwReference || !draftNode) {
-      return
-    }
+  function beginAddBuildingMode() {
+    setAddBuildingMode(true)
+    setSaveBuildingError('')
+    setDraftBuilding((current) => current ?? createInitialDraftBuilding())
+  }
 
-    setSaveNodeBusy(true)
-    setSaveNodeError('')
+  function cancelAddBuilding() {
+    setAddBuildingMode(false)
+    setDraftBuilding(null)
+    setSaveBuildingError('')
+  }
+
+  async function handleSaveBuilding() {
+    if (!session || !nitwReference || !draftBuilding) return
+    setSaveBuildingBusy(true)
+    setSaveBuildingError('')
     try {
-      const { networkPayload, hardwareId } = buildNetworkWithDraftNode(nitwReference, draftNode)
+      const { buildingId, networkPayload } = buildNetworkWithDraftBuilding(nitwReference, draftBuilding)
+      setSelectedBuildingId(buildingId)
       await syncNetwork(session.token, networkPayload)
-      setAddNodeMode(false)
-      setDraftNode(null)
-      setSelectedHardwareId(hardwareId)
       await loadDashboard(session.token, supervised)
-      setSelectedHardwareId(hardwareId)
+      setSelectedBuildingId(buildingId)
+      setShowBuildingModal(true)
+      setAddBuildingMode(false)
+      setDraftBuilding(null)
     } catch (error) {
-      setSaveNodeError(error instanceof Error ? error.message : 'Failed to add node')
+      setSaveBuildingError(error instanceof Error ? error.message : 'Failed to add building')
     } finally {
-      setSaveNodeBusy(false)
+      setSaveBuildingBusy(false)
     }
   }
 
-  function beginAddNodeMode() {
-    setAddNodeMode(true)
-    setSaveNodeError('')
-    setDraftNode((current) => current ?? createInitialDraftNode())
+  function beginAddSensorMode() {
+    if (!selectedBuilding) return
+    setAddSensorMode(true)
+    setSaveSensorError('')
+    setDraftSensor({
+      name: `${selectedBuilding.name} Sensor ${String(selectedBuilding.sensorCount + 1).padStart(2, '0')}`,
+      pMw: '0.05',
+      qMvar: '0.02',
+    })
   }
 
-  function cancelAddNode() {
-    setAddNodeMode(false)
-    setDraftNode(null)
-    setSaveNodeError('')
+  function cancelAddSensor() {
+    setAddSensorMode(false)
+    setDraftSensor(null)
+    setSaveSensorError('')
   }
 
-  function markNodeReview(nodeId: string, decision: NodeReviewDecision) {
-    setReviewByNodeId((current) => ({
-      ...current,
-      [nodeId]: decision,
-    }))
+  async function handleSaveSensor() {
+    if (!session || !nitwReference || !selectedBuilding || !draftSensor) return
+    setSaveSensorBusy(true)
+    setSaveSensorError('')
+    try {
+      await syncNetwork(session.token, buildNetworkWithAddedSensor(nitwReference, selectedBuilding, draftSensor))
+      await loadDashboard(session.token, supervised)
+      setSelectedBuildingId(selectedBuilding.id)
+      setShowBuildingModal(true)
+      setAddSensorMode(false)
+      setDraftSensor(null)
+    } catch (error) {
+      setSaveSensorError(error instanceof Error ? error.message : 'Failed to add node')
+    } finally {
+      setSaveSensorBusy(false)
+    }
   }
 
-  function clearNodeReview(nodeId: string) {
-    setReviewByNodeId((current) => {
+  function openBuildingModal(buildingId: string) {
+    setSelectedBuildingId(buildingId)
+    setShowBuildingModal(true)
+    setAddSensorMode(false)
+    setSaveSensorError('')
+  }
+
+  function closeBuildingModal() {
+    setShowBuildingModal(false)
+    setAddSensorMode(false)
+    setSaveSensorError('')
+  }
+
+  function markSensorReview(sensorId: string, decision: SensorReviewDecision) {
+    setReviewBySensorId((current) => ({ ...current, [sensorId]: decision }))
+  }
+
+  function clearSensorReview(sensorId: string) {
+    setReviewBySensorId((current) => {
       const next = { ...current }
-      delete next[nodeId]
+      delete next[sensorId]
       return next
     })
   }
@@ -344,8 +364,35 @@ function App() {
     setClaimedDevices([])
     setNitwReference(null)
     setCompareByElementId({})
-    setSelectedHardwareId('')
+    setSelectedBuildingId('')
     setSupervised(false)
+    setReviewBySensorId({})
+    setShowBuildingModal(false)
+    setAddBuildingMode(false)
+    setDraftBuilding(null)
+  }
+
+  function renderClaimBox(building: CampusBuilding) {
+    if (building.claimedByCurrentUser) {
+      return <div className="claim-success">{supervised ? 'Claimed by you. Building sensors are now supervised by the model.' : 'Claimed by you. Click Supervise to compare internal sensors with the model.'}</div>
+    }
+    return (
+      <div className="claim-box">
+        <label>
+          <span>Building claim password</span>
+          <input
+            onChange={(event) => setClaimPasswords((current) => ({ ...current, [building.hardwareId]: event.target.value }))}
+            placeholder={building.claimPasswordHint}
+            type="password"
+            value={claimPasswords[building.hardwareId] ?? ''}
+          />
+        </label>
+        {claimErrorByHardwareId[building.hardwareId] ? <div className="form-error">{claimErrorByHardwareId[building.hardwareId]}</div> : null}
+        <button disabled={claimBusyHardwareId === building.hardwareId} onClick={() => void handleClaim(building.hardwareId)} type="button">
+          {claimBusyHardwareId === building.hardwareId ? 'Claiming...' : 'Claim building'}
+        </button>
+      </div>
+    )
   }
 
   if (!session) {
@@ -353,23 +400,13 @@ function App() {
       <main className="auth-shell">
         <section className="auth-card">
           <p className="kicker">INNOTHON Access</p>
-          <h1>{authMode === 'login' ? 'Login to claim grid nodes' : 'Create your operator account'}</h1>
-          <p className="auth-copy">
-            Staff users can sign in, inspect campus nodes, and claim the ones they manage.
-          </p>
+          <h1>{authMode === 'login' ? 'Login to claim campus buildings' : 'Create your operator account'}</h1>
+          <p className="auth-copy">Staff users can sign in, claim buildings, and inspect internal sensor anomalies building by building.</p>
           <form className="auth-form" onSubmit={handleAuthSubmit}>
-            <label>
-              <span>Email</span>
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
-            </label>
-            <label>
-              <span>Password</span>
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={8} required />
-            </label>
+            <label><span>Email</span><input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required /></label>
+            <label><span>Password</span><input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={8} required /></label>
             {authError ? <div className="form-error">{authError}</div> : null}
-            <button disabled={authBusy} type="submit">
-              {authBusy ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Register'}
-            </button>
+            <button disabled={authBusy} type="submit">{authBusy ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Register'}</button>
           </form>
           <button className="ghost-button" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} type="button">
             {authMode === 'login' ? 'Need an account? Register' : 'Already have an account? Login'}
@@ -383,39 +420,23 @@ function App() {
     <main className="network-shell">
       <header className="network-header">
         <div>
-          <p className="kicker">NITW Network Control</p>
-          <h1>Claim campus nodes and inspect model deviations</h1>
+          <p className="kicker">NITW Building Control</p>
+          <h1>Claim buildings and inspect internal sensor anomalies</h1>
           <p className="header-copy">Signed in as {session.email}</p>
         </div>
         <div className="header-actions">
           <div className="header-stats">
-            <div className="header-stat">
-              <span>Claimed by you</span>
-              <strong>{stats.claimed}</strong>
-            </div>
-            <div className="header-stat">
-              <span>Blue nodes</span>
-              <strong>{stats.blue}</strong>
-            </div>
-            <div className="header-stat">
-              <span>Green nodes</span>
-              <strong>{stats.green}</strong>
-            </div>
-            <div className="header-stat">
-              <span>Red nodes</span>
-              <strong>{stats.red}</strong>
-            </div>
+            <div className="header-stat"><span>Claimed buildings</span><strong>{stats.claimed}</strong></div>
+            <div className="header-stat"><span>Total buildings</span><strong>{buildings.length}</strong></div>
+            <div className="header-stat"><span>Total sensors</span><strong>{stats.sensors}</strong></div>
+            <div className="header-stat"><span>Red buildings</span><strong>{stats.red}</strong></div>
           </div>
           <div className="header-button-row">
-            <button className="ghost-button" disabled={pageBusy || saveNodeBusy} onClick={beginAddNodeMode} type="button">
-              Add node
-            </button>
+            <button className="ghost-button" disabled={pageBusy || saveBuildingBusy} onClick={beginAddBuildingMode} type="button">Add building</button>
             <button className="ghost-button ghost-button--accent" disabled={pageBusy || superviseBusy} onClick={() => void handleSupervise()} type="button">
               {superviseBusy ? 'Supervising...' : 'Supervise'}
             </button>
-            <button className="ghost-button" onClick={logout} type="button">
-              Logout
-            </button>
+            <button className="ghost-button" onClick={logout} type="button">Logout</button>
           </div>
         </div>
       </header>
@@ -424,605 +445,350 @@ function App() {
 
       <section className="network-layout">
         <section className="map-card">
-          <MapContainer center={CAMPUS_CENTER} className="network-map" zoom={17} zoomControl={false}>
+          <MapContainer center={CAMPUS_CENTER} className="network-map" zoom={16} zoomControl={false}>
             <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <ZoomControl position="bottomright" />
-            <MapPlacementHandler
-              active={addNodeMode}
-              onPlace={(lat, lng) =>
-                setDraftNode((current) => ({
-                  ...(current ?? createInitialDraftNode()),
-                  lat,
-                  lng,
-                }))
-              }
-            />
+            <MapPlacementHandler active={addBuildingMode} onPlace={(lat, lng) => setDraftBuilding((current) => current ? { ...current, lat, lng } : { ...createInitialDraftBuilding(), lat, lng })} />
 
-            {nodes.map((node) => (
-              <Polyline
-                key={`line-${node.hardwareId}`}
-                pathOptions={{
-                  color: edgeColor(node.status),
-                  dashArray: '10 10',
-                  weight: 4,
-                }}
-                positions={[PUMP_STATION, [node.lat, node.lng]]}
-              />
+            {buildings.map((building) => (
+              <Polyline key={`line-${building.hardwareId}`} pathOptions={{ color: edgeColor(building.status), dashArray: '10 10', weight: 4 }} positions={[PUMP_STATION, [building.lat, building.lng]]} />
             ))}
 
-            <Marker icon={PUMP_ICON} position={PUMP_STATION}>
-              <Popup>
-                <div className="popup-card">
-                  <strong>Main Feed</strong>
-                  <span>Campus distribution source.</span>
-                </div>
-              </Popup>
-            </Marker>
+            <Marker icon={PUMP_ICON} position={PUMP_STATION}><Popup><div className="popup-card"><strong>Main Feed</strong><span>Campus distribution source.</span></div></Popup></Marker>
 
-            {draftNode ? (
+            {draftBuilding ? (
               <Marker
                 draggable
-                eventHandlers={{
-                  dragend: (event) => {
-                    const marker = event.target
-                    const position = marker.getLatLng()
-                    setDraftNode((current) =>
-                      current
-                        ? {
-                            ...current,
-                            lat: position.lat,
-                            lng: position.lng,
-                          }
-                        : current,
-                    )
-                  },
-                }}
-                position={[draftNode.lat, draftNode.lng]}
+                eventHandlers={{ dragend: (event) => { const position = event.target.getLatLng(); setDraftBuilding((current) => current ? { ...current, lat: position.lat, lng: position.lng } : current) } }}
+                position={[draftBuilding.lat, draftBuilding.lng]}
               >
-                <Popup>
-                  <div className="popup-card">
-                    <strong>{draftNode.name || 'New node'}</strong>
-                    <span>Drag this marker to refine placement.</span>
-                    <span>{draftNode.lat.toFixed(6)}, {draftNode.lng.toFixed(6)}</span>
-                  </div>
-                </Popup>
+                <Popup><div className="popup-card"><strong>{draftBuilding.name || 'New building'}</strong><span>Drag to place the new building.</span><span>{draftBuilding.lat.toFixed(6)}, {draftBuilding.lng.toFixed(6)}</span></div></Popup>
               </Marker>
             ) : null}
 
-            {nodes.map((node) => (
+            {buildings.map((building) => (
               <CircleMarker
-                center={[node.lat, node.lng]}
-                eventHandlers={{ click: () => setSelectedHardwareId(node.hardwareId) }}
-                key={node.hardwareId}
-                pathOptions={{
-                  color: borderColor(node.status),
-                  fillColor: fillColor(node.status),
-                  fillOpacity: 0.94,
-                  weight: selectedHardwareId === node.hardwareId ? 4 : 2,
-                }}
-                radius={selectedHardwareId === node.hardwareId ? 11 : 9}
+                center={[building.lat, building.lng]}
+                eventHandlers={{ click: () => setSelectedBuildingId(building.id) }}
+                key={building.hardwareId}
+                pathOptions={{ color: borderColor(building.status), fillColor: fillColor(building.status), fillOpacity: 0.94, weight: selectedBuildingId === building.id ? 4 : 2 }}
+                radius={selectedBuildingId === building.id ? 13 : 11}
               >
-                <Tooltip direction="top" offset={[0, -8]}>
-                  {node.name}
-                </Tooltip>
+                <Tooltip direction="top" offset={[0, -8]}>{building.name}</Tooltip>
                 <Popup>
                   <div className="popup-card popup-card--wide">
-                    <strong>{node.name}</strong>
-                    <span>{node.hardwareId}</span>
-                    <span>Bus: {node.busId}</span>
-                    <span>Expected load: {node.expectedMw.toFixed(2)} MW</span>
-                    <span>Current load: {node.currentMw.toFixed(2)} MW</span>
-                    <span>Model status: {comparisonLabel(node.comparisonStatus)}</span>
-                    <span>Simulated exact: {node.comparedExpectedMw !== null ? formatMw(node.comparedExpectedMw) : 'Topology issue / unavailable'}</span>
-                    <span>Measured exact: {node.comparedActualMw !== null ? formatMw(node.comparedActualMw) : 'No reading'}</span>
-                    <span>Delta: {node.deltaMw !== null ? formatSignedMw(node.deltaMw) : 'Not comparable'}</span>
-                    <span>Claims: {node.claimCount}</span>
-                    <span className={`map-badge map-badge--${node.status}`}>
-                      {statusLabel(node.status)}
-                    </span>
-                    {node.reviewDecision ? (
-                      <span className="map-badge map-badge--review">
-                        User review: {node.reviewDecision === 'normal' ? 'Marked normal' : 'Keep anomaly'}
-                      </span>
-                    ) : null}
-                    {node.claimedByCurrentUser && supervised && node.comparisonStatus === 'deviation' ? (
-                      <div className="review-box">
-                        <strong>Review this anomaly</strong>
-                        <div className="review-actions">
-                          <button onClick={() => markNodeReview(node.id, 'normal')} type="button">
-                            Mark normal
-                          </button>
-                          <button onClick={() => markNodeReview(node.id, 'anomaly')} type="button">
-                            Keep anomaly
-                          </button>
-                          {node.reviewDecision ? (
-                            <button className="ghost-button" onClick={() => clearNodeReview(node.id)} type="button">
-                              Clear review
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                    {!node.claimedByCurrentUser ? (
-                      <div className="claim-box">
-                        <label>
-                          <span>Claim password</span>
-                          <input
-                            onChange={(event) =>
-                              setClaimPasswords((current) => ({
-                                ...current,
-                                [node.hardwareId]: event.target.value,
-                              }))
-                            }
-                            placeholder={node.claimPasswordHint}
-                            type="password"
-                            value={claimPasswords[node.hardwareId] ?? ''}
-                          />
-                        </label>
-                        {claimErrorByHardwareId[node.hardwareId] ? (
-                          <div className="form-error">{claimErrorByHardwareId[node.hardwareId]}</div>
-                        ) : null}
-                        <button
-                          disabled={claimBusyHardwareId === node.hardwareId}
-                          onClick={() => void handleClaim(node.hardwareId)}
-                          type="button"
-                        >
-                          {claimBusyHardwareId === node.hardwareId ? 'Claiming...' : 'Claim node'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="claim-success">
-                        {supervised
-                          ? 'Claimed by you. This node is now supervised by the model.'
-                          : 'Claimed by you. Click Supervise to run deviation checks.'}
-                      </div>
-                    )}
+                    <strong>{building.name}</strong>
+                    <span>{building.hardwareId}</span>
+                    <span>Bus: {building.busId}</span>
+                    <span>Sensors inside: {building.sensorCount}</span>
+                    <span>Expected aggregate: {building.expectedMw.toFixed(2)} MW</span>
+                    <span>Current aggregate: {building.currentMw.toFixed(2)} MW</span>
+                    <span>Anomalous sensors: {building.sensors.filter((sensor) => sensor.status === 'deviation').length}</span>
+                    <span className={`map-badge map-badge--${building.status}`}>{statusLabel(building.status)}</span>
+                    <button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(building.id)} type="button">Expand building</button>
+                    {renderClaimBox(building)}
                   </div>
                 </Popup>
               </CircleMarker>
             ))}
           </MapContainer>
         </section>
-
         <aside className="side-panel">
-          {addNodeMode ? (
+          {addBuildingMode ? (
             <article className="panel panel--composer">
               <div className="panel-heading">
-                <div>
-                  <p className="kicker">Node Composer</p>
-                  <h2>Add a campus node</h2>
-                </div>
+                <div><p className="kicker">Building Composer</p><h2>Add a building</h2></div>
                 <span className="status-badge status-unclaimed">Draft</span>
               </div>
-              <p className="composer-copy">
-                Click anywhere on the map, then drag the draft marker until the placement looks right.
-              </p>
+              <p className="composer-copy">Click on the map to place the building, drag the draft marker if needed, then save the building with its first node.</p>
               <div className="composer-form">
-                <label>
-                  <span>Node name</span>
-                  <input
-                    onChange={(event) =>
-                      setDraftNode((current) =>
-                        current
-                          ? {
-                              ...current,
-                              name: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    placeholder="New academic block"
-                    value={draftNode?.name ?? ''}
-                  />
-                </label>
-                <label>
-                  <span>Active load (MW)</span>
-                  <input
-                    min="0"
-                    onChange={(event) =>
-                      setDraftNode((current) =>
-                        current
-                          ? {
-                              ...current,
-                              pMw: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    step="0.01"
-                    type="number"
-                    value={draftNode?.pMw ?? ''}
-                  />
-                </label>
-                <label>
-                  <span>Reactive load (MVAR)</span>
-                  <input
-                    min="0"
-                    onChange={(event) =>
-                      setDraftNode((current) =>
-                        current
-                          ? {
-                              ...current,
-                              qMvar: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    step="0.01"
-                    type="number"
-                    value={draftNode?.qMvar ?? ''}
-                  />
-                </label>
-                <label>
-                  <span>Bus voltage (kV)</span>
-                  <input
-                    min="0"
-                    onChange={(event) =>
-                      setDraftNode((current) =>
-                        current
-                          ? {
-                              ...current,
-                              vnKv: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    step="0.1"
-                    type="number"
-                    value={draftNode?.vnKv ?? ''}
-                  />
-                </label>
+                <label><span>Building name</span><input onChange={(event) => setDraftBuilding((current) => current ? { ...current, name: event.target.value } : current)} placeholder="New academic block" value={draftBuilding?.name ?? ''} /></label>
+                <label><span>First node name</span><input onChange={(event) => setDraftBuilding((current) => current ? { ...current, firstSensorName: event.target.value } : current)} placeholder="Main panel sensor" value={draftBuilding?.firstSensorName ?? ''} /></label>
+                <label><span>Active load (MW)</span><input min="0" onChange={(event) => setDraftBuilding((current) => current ? { ...current, pMw: event.target.value } : current)} step="0.01" type="number" value={draftBuilding?.pMw ?? ''} /></label>
+                <label><span>Reactive load (MVAR)</span><input min="0" onChange={(event) => setDraftBuilding((current) => current ? { ...current, qMvar: event.target.value } : current)} step="0.01" type="number" value={draftBuilding?.qMvar ?? ''} /></label>
+                <label><span>Bus voltage (kV)</span><input min="0" onChange={(event) => setDraftBuilding((current) => current ? { ...current, vnKv: event.target.value } : current)} step="0.1" type="number" value={draftBuilding?.vnKv ?? ''} /></label>
               </div>
-              {draftNode ? (
-                <div className="draft-coordinates">
-                  Draft position: {draftNode.lat.toFixed(6)}, {draftNode.lng.toFixed(6)}
-                </div>
-              ) : null}
-              {saveNodeError ? <div className="form-error">{saveNodeError}</div> : null}
+              {draftBuilding ? <div className="draft-coordinates">Draft position: {draftBuilding.lat.toFixed(6)}, {draftBuilding.lng.toFixed(6)}</div> : null}
+              {saveBuildingError ? <div className="form-error">{saveBuildingError}</div> : null}
               <div className="composer-actions">
-                <button disabled={saveNodeBusy || !draftNode?.name.trim()} onClick={() => void handleSaveNode()} type="button">
-                  {saveNodeBusy ? 'Saving node...' : 'Save node'}
+                <button disabled={saveBuildingBusy || !draftBuilding?.name.trim() || !draftBuilding?.firstSensorName.trim()} onClick={() => void handleSaveBuilding()} type="button">
+                  {saveBuildingBusy ? 'Saving building...' : 'Save building'}
                 </button>
-                <button className="ghost-button" onClick={cancelAddNode} type="button">
-                  Cancel
-                </button>
+                <button className="ghost-button" onClick={cancelAddBuilding} type="button">Cancel</button>
               </div>
             </article>
           ) : null}
 
           <article className="panel panel--summary">
-            <div className="metric">
-              <span>Total nodes</span>
-              <strong>{nodes.length}</strong>
-            </div>
-            <div className="metric">
-              <span>Status</span>
-              <strong>{pageBusy ? 'Refreshing...' : supervised ? 'Supervised' : 'Ready to supervise'}</strong>
-            </div>
-            <div className="metric">
-              <span>MQTT safety</span>
-              <strong>Per-device token</strong>
+            <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
+            <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
+            <div className="metric"><span>Status</span><strong>{pageBusy ? 'Refreshing...' : supervised ? 'Supervised' : 'Ready to supervise'}</strong></div>
+          </article>
+
+          <article className="panel panel--list">
+            <div className="panel-heading"><div><p className="kicker">Buildings</p><h2>Claim and inspect</h2></div></div>
+            <div className="building-list">
+              {buildings.map((building) => (
+                <button className="building-row" key={building.id} onClick={() => setSelectedBuildingId(building.id)} type="button">
+                  <div><strong>{building.name}</strong><span>{building.sensorCount} sensors • {building.expectedMw.toFixed(2)} MW expected</span></div>
+                  <span className={`mini-badge status-${building.status}`}>{statusLabel(building.status)}</span>
+                </button>
+              ))}
             </div>
           </article>
 
-          {selectedNode ? (
-            <>
-              <article className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="kicker">Selected Node</p>
-                    <h2>{selectedNode.name}</h2>
-                  </div>
-                  <span className={`status-badge status-${selectedNode.status}`}>
-                    {statusLabel(selectedNode.status)}
-                  </span>
-                </div>
-                {selectedNode.reviewDecision ? (
-                  <div className="review-note">
-                    User review: {selectedNode.reviewDecision === 'normal' ? 'Marked normal by operator' : 'Confirmed as anomaly by operator'}
-                  </div>
-                ) : null}
-
-                <div className="detail-list">
-                  <div><span>Hardware ID</span><strong>{selectedNode.hardwareId}</strong></div>
-                  <div><span>Bus</span><strong>{selectedNode.busId}</strong></div>
-                  <div><span>Expected</span><strong>{selectedNode.expectedMw.toFixed(2)} MW</strong></div>
-                  <div><span>Current</span><strong>{selectedNode.currentMw.toFixed(2)} MW</strong></div>
-                  <div><span>Model status</span><strong>{comparisonLabel(selectedNode.comparisonStatus)}</strong></div>
-                  <div><span>Simulated exact</span><strong>{selectedNode.comparedExpectedMw !== null ? formatMw(selectedNode.comparedExpectedMw) : 'Topology issue / unavailable'}</strong></div>
-                  <div><span>Measured exact</span><strong>{selectedNode.comparedActualMw !== null ? formatMw(selectedNode.comparedActualMw) : 'No reading'}</strong></div>
-                  <div><span>Delta</span><strong>{selectedNode.deltaMw !== null ? formatSignedMw(selectedNode.deltaMw) : 'Not comparable'}</strong></div>
-                  <div><span>Sensor</span><strong>{selectedNode.sensorId}</strong></div>
-                  <div><span>Coordinates</span><strong>{selectedNode.lat.toFixed(6)}, {selectedNode.lng.toFixed(6)}</strong></div>
-                </div>
-                {selectedNode.claimedByCurrentUser && supervised && selectedNode.comparisonStatus === 'deviation' ? (
-                  <div className="review-box review-box--panel">
-                    <strong>Operator decision</strong>
-                    <div className="review-actions">
-                      <button onClick={() => markNodeReview(selectedNode.id, 'normal')} type="button">
-                        Mark normal
-                      </button>
-                      <button onClick={() => markNodeReview(selectedNode.id, 'anomaly')} type="button">
-                        Keep anomaly
-                      </button>
-                      {selectedNode.reviewDecision ? (
-                        <button className="ghost-button" onClick={() => clearNodeReview(selectedNode.id)} type="button">
-                          Clear review
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
-              </article>
-
-              <article className="panel panel--list">
-                <div className="panel-heading">
-                  <div>
-                    <p className="kicker">Legend</p>
-                    <h2>Node colors</h2>
-                  </div>
-                </div>
-                <div className="building-list">
-                  <div className="building-row legend-row">
-                    <div>
-                      <strong>Blue</strong>
-                      <span>Not claimed by this user yet</span>
-                    </div>
-                  </div>
-                  <div className="building-row legend-row">
-                    <div>
-                      <strong>Green</strong>
-                      <span>Claimed and no deviation after supervision</span>
-                    </div>
-                  </div>
-                  <div className="building-row legend-row">
-                    <div>
-                      <strong>Red</strong>
-                      <span>Claimed and deviating after supervision</span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </>
+          {selectedBuilding ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <div><p className="kicker">Selected Building</p><h2>{selectedBuilding.name}</h2></div>
+                <span className={`status-badge status-${selectedBuilding.status}`}>{statusLabel(selectedBuilding.status)}</span>
+              </div>
+              <div className="detail-list">
+                <div><span>Hardware ID</span><strong>{selectedBuilding.hardwareId}</strong></div>
+                <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
+                <div><span>Sensors</span><strong>{selectedBuilding.sensorCount}</strong></div>
+                <div><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
+                <div><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
+              </div>
+              <div className="panel-action-row"><button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(selectedBuilding.id)} type="button">Open building view</button></div>
+              {renderClaimBox(selectedBuilding)}
+            </article>
           ) : null}
         </aside>
       </section>
+
+      {showBuildingModal && selectedBuilding ? (
+        <div className="modal-backdrop" onClick={closeBuildingModal} role="presentation">
+          <section className="building-modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="building-modal__header">
+              <div>
+                <p className="kicker">Building View</p>
+                <h2>{selectedBuilding.name}</h2>
+                <p className="header-copy">{selectedBuilding.sensorCount} internal sensors on {selectedBuilding.busId}</p>
+              </div>
+              <div className="building-modal__actions">
+                <span className={`status-badge status-${selectedBuilding.status}`}>{statusLabel(selectedBuilding.status)}</span>
+                <button className="ghost-button" onClick={closeBuildingModal} type="button">Close</button>
+              </div>
+            </div>
+
+            <div className="building-modal__summary">
+              <div className="metric"><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
+              <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
+              <div className="metric"><span>Anomalous sensors</span><strong>{selectedBuilding.sensors.filter((sensor) => sensor.status === 'deviation').length}</strong></div>
+              <div className="metric"><span>Claim count</span><strong>{selectedBuilding.claimCount}</strong></div>
+            </div>
+
+            <div className="building-modal__toolbar"><button className="ghost-button ghost-button--accent" onClick={beginAddSensorMode} type="button">Add node</button></div>
+
+            {addSensorMode && draftSensor ? (
+              <article className="panel panel--composer modal-composer">
+                <div className="panel-heading">
+                  <div><p className="kicker">Internal Node</p><h2>Add sensor/load</h2></div>
+                  <span className="status-badge status-unclaimed">Draft</span>
+                </div>
+                <div className="composer-form modal-composer__grid">
+                  <label><span>Node name</span><input onChange={(event) => setDraftSensor((current) => current ? { ...current, name: event.target.value } : current)} value={draftSensor.name} /></label>
+                  <label><span>Active load (MW)</span><input min="0" onChange={(event) => setDraftSensor((current) => current ? { ...current, pMw: event.target.value } : current)} step="0.01" type="number" value={draftSensor.pMw} /></label>
+                  <label><span>Reactive load (MVAR)</span><input min="0" onChange={(event) => setDraftSensor((current) => current ? { ...current, qMvar: event.target.value } : current)} step="0.01" type="number" value={draftSensor.qMvar} /></label>
+                </div>
+                {saveSensorError ? <div className="form-error">{saveSensorError}</div> : null}
+                <div className="composer-actions">
+                  <button disabled={saveSensorBusy || !draftSensor.name.trim()} onClick={() => void handleSaveSensor()} type="button">{saveSensorBusy ? 'Saving node...' : 'Save node'}</button>
+                  <button className="ghost-button" onClick={cancelAddSensor} type="button">Cancel</button>
+                </div>
+              </article>
+            ) : null}
+
+            <div className="building-modal__content">
+              <div className="modal-side">
+                <article className="panel">
+                  <div className="detail-list">
+                    <div><span>Hardware ID</span><strong>{selectedBuilding.hardwareId}</strong></div>
+                    <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
+                    <div><span>Coordinates</span><strong>{selectedBuilding.lat.toFixed(6)}, {selectedBuilding.lng.toFixed(6)}</strong></div>
+                    <div><span>Supervision</span><strong>{supervised ? 'Active' : 'Not run yet'}</strong></div>
+                  </div>
+                  {renderClaimBox(selectedBuilding)}
+                </article>
+              </div>
+
+              <div className="modal-main">
+                <div className="sensor-section sensor-section--modal">
+                  <p className="kicker">All Internal Sensors</p>
+                  <div className="sensor-list sensor-list--modal">
+                    {selectedBuilding.sensors.map((sensor) => (
+                      <article className="sensor-card sensor-card--modal" key={sensor.id}>
+                        <div className="sensor-card__header sensor-card__header--split">
+                          <div><strong>{sensor.name}</strong><span>{sensor.sensorId}</span></div>
+                          <span className={`mini-badge status-${sensor.status}`}>{comparisonLabel(sensor.comparisonStatus)}</span>
+                        </div>
+                        <div className="sensor-card__metrics sensor-card__metrics--grid">
+                          <span>Expected: {sensor.expectedMw.toFixed(3)} MW</span>
+                          <span>Measured: {sensor.currentMw.toFixed(3)} MW</span>
+                          <span>Simulated exact: {sensor.comparedExpectedMw !== null ? formatMw(sensor.comparedExpectedMw) : 'Unavailable'}</span>
+                          <span>Measured exact: {sensor.comparedActualMw !== null ? formatMw(sensor.comparedActualMw) : 'No reading'}</span>
+                          <span>Delta: {sensor.deltaMw !== null ? formatSignedMw(sensor.deltaMw) : 'Not comparable'}</span>
+                          <span>Sensor index: {sensor.sensorIndex}</span>
+                        </div>
+                        {selectedBuilding.claimedByCurrentUser && supervised && sensor.status === 'deviation' ? (
+                          <div className="review-box review-box--panel">
+                            <strong>Operator decision</strong>
+                            <div className="review-actions">
+                              <button onClick={() => markSensorReview(sensor.id, 'normal')} type="button">Mark normal</button>
+                              <button onClick={() => markSensorReview(sensor.id, 'anomaly')} type="button">Keep anomaly</button>
+                              {sensor.reviewDecision ? <button className="ghost-button" onClick={() => clearSensorReview(sensor.id)} type="button">Clear review</button> : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }
 
-function MapPlacementHandler({
-  active,
-  onPlace,
-}: {
-  active: boolean
-  onPlace: (lat: number, lng: number) => void
-}) {
+function MapPlacementHandler({ active, onPlace }: { active: boolean; onPlace: (lat: number, lng: number) => void }) {
   useMapEvents({
     click(event) {
-      if (!active) {
-        return
-      }
-      onPlace(event.latlng.lat, event.latlng.lng)
+      if (active) onPlace(event.latlng.lat, event.latlng.lng)
     },
   })
-
   return null
 }
 
-async function superviseNodes(
-  token: string,
-  inventory: DeviceRecord[],
-  claimedDevices: DeviceRecord[],
-  nitwReference: NitwReference,
-) {
-  const readingsPayload = buildReadingsPayload(inventory, claimedDevices, nitwReference)
-  
-  const compare = await compareNitwNetwork(token, nitwReference, readingsPayload)
-  console.log("dbg" , compare)
-  return Object.fromEntries(
-    (compare.comparisons ?? [])
-      .filter((entry) => entry.element_type === 'load')
-      .map((entry) => [entry.element_id, entry]),
-  )
+async function superviseBuildings(token: string, claimedDevices: DeviceRecord[], nitwReference: NitwReference) {
+  const compare = await compareNitwNetwork(token, nitwReference, buildReadingsPayload(claimedDevices, nitwReference))
+  return Object.fromEntries((compare.comparisons ?? []).filter((entry) => entry.element_type === 'load').map((entry) => [entry.element_id, entry]))
 }
 
-function buildReadingsPayload(
-  inventory: DeviceRecord[],
-  claimedDevices: DeviceRecord[],
-  nitwReference: NitwReference,
-): Record<string, number> {
-  const claimedByHardwareId = new Map(claimedDevices.map((device) => [device.hardwareId, device]))
+function buildReadingsPayload(claimedDevices: DeviceRecord[], nitwReference: NitwReference): Record<string, number> {
+  const claimedByHardwareId = new Map(claimedDevices.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
   const readings: Record<string, number> = {}
-
   for (const load of nitwReference.loads) {
-    const hardwareId = hardwareIdForLoadId(load.id)
-    const inventoryDevice = inventory.find((device) => device.hardwareId === hardwareId)
-    const claimedDevice = claimedByHardwareId.get(hardwareId)
-    const sensorId =
-      nitwReference.sensor_links.find((link) => link.element_type === 'load' && link.element_id === load.id)?.sensor_id ??
-      inventoryDevice?.sensorManifest[0]?.sensorId
-
-    if (!sensorId) {
-      continue
-    }
-
-    const latest = claimedDevice?.latestReadings[0]
+    const buildingId = load.building_id ?? `building_${slugify(load.name || load.id || load.bus_id)}`
+    const device = claimedByHardwareId.get(hardwareIdForBuildingId(buildingId))
+    const sensorId = nitwReference.sensor_links.find((link) => link.element_type === 'load' && link.element_id === load.id)?.sensor_id ?? `sensor_${load.id}`
+    const latest = device?.latestReadings.find((reading) => reading.sensorId === sensorId)
     readings[sensorId] = typeof latest?.value === 'number' ? latest.value : fakeReadingForLoad(load)
   }
-
   return readings
 }
 
-function fakeReadingForLoad(load: NitwReference['loads'][number] | undefined) {
-  if (!load) {
-    return 0
-  }
-  const deviationFactor = load.id.length % 3 === 0 ? 1.18 : 1
-  return Number((load.p_mw * deviationFactor).toFixed(3))
-}
-
-function fillColor(status: NodeVisualStatus) {
-  if (status === 'healthy') return '#64d7a1'
-  if (status === 'deviation') return '#f09090'
-  return '#7eb6ff'
-}
-
-function borderColor(status: NodeVisualStatus) {
-  if (status === 'healthy') return '#17885c'
-  if (status === 'deviation') return '#c44747'
-  return '#2e6bd3'
-}
-
-function edgeColor(status: NodeVisualStatus) {
-  if (status === 'healthy') return '#1b9f6e'
-  if (status === 'deviation') return '#d74b4b'
-  return '#2c70d8'
-}
-
-function statusLabel(status: NodeVisualStatus) {
-  if (status === 'healthy') return 'Healthy'
-  if (status === 'deviation') return 'Deviation'
-  return 'Unclaimed'
-}
-
-function createInitialDraftNode(): DraftNode {
+function buildNetworkWithDraftBuilding(nitwReference: NitwReference, draftBuilding: DraftBuilding) {
+  const name = draftBuilding.name.trim()
+  const firstSensorName = draftBuilding.firstSensorName.trim()
+  if (!name) throw new Error('Building name is required')
+  if (!firstSensorName) throw new Error('First node name is required')
+  const buildings = normalizedBuildings(nitwReference)
+  const buildingId = buildUniqueId(`building_${slugify(name)}`, buildings.map((building) => building.id))
+  const busId = buildUniqueId(`bus_${slugify(name)}`, nitwReference.buses.map((bus) => bus.id))
+  const loadId = buildUniqueId(`load_${slugify(name)}_01`, nitwReference.loads.map((load) => load.id))
+  const sensorId = buildUniqueId(`sensor_${slugify(name)}_01`, nitwReference.sensor_links.map((link) => link.sensor_id))
+  const pMw = Number(draftBuilding.pMw)
+  const qMvar = Number(draftBuilding.qMvar)
+  const vnKv = Number(draftBuilding.vnKv)
+  if (!Number.isFinite(pMw) || pMw < 0) throw new Error('Active load must be a valid non-negative number')
+  if (!Number.isFinite(qMvar) || qMvar < 0) throw new Error('Reactive load must be a valid non-negative number')
+  if (!Number.isFinite(vnKv) || vnKv <= 0) throw new Error('Bus voltage must be a valid positive number')
   return {
-    name: '',
-    lat: 17.98369646253154,
-    lng: 79.53082786635768,
-    pMw: '0.30',
-    qMvar: '0.10',
-    vnKv: '20',
-  }
-}
-
-function buildNetworkWithDraftNode(nitwReference: NitwReference, draftNode: DraftNode) {
-  const name = draftNode.name.trim()
-  if (!name) {
-    throw new Error('Node name is required')
-  }
-
-  const loadId = buildUniqueId(
-    `load_${slugify(name)}`,
-    nitwReference.loads.map((load) => load.id),
-  )
-  const busId = buildUniqueId(
-    `bus_${slugify(name)}`,
-    nitwReference.buses.map((bus) => bus.id),
-  )
-  const sensorId = buildUniqueId(
-    `sensor_${loadId}`,
-    nitwReference.sensor_links.map((link) => link.sensor_id),
-  )
-  const pMw = Number(draftNode.pMw)
-  const qMvar = Number(draftNode.qMvar)
-  const vnKv = Number(draftNode.vnKv)
-
-  if (!Number.isFinite(pMw) || pMw < 0) {
-    throw new Error('Active load must be a valid non-negative number')
-  }
-  if (!Number.isFinite(qMvar) || qMvar < 0) {
-    throw new Error('Reactive load must be a valid non-negative number')
-  }
-  if (!Number.isFinite(vnKv) || vnKv <= 0) {
-    throw new Error('Bus voltage must be a valid positive number')
-  }
-
-  return {
-    hardwareId: `NODE-${loadId.replaceAll('_', '-').toUpperCase()}`,
+    buildingId,
     networkPayload: {
       ...nitwReference,
-      buses: [
-        ...nitwReference.buses,
-        {
-          id: busId,
-          name: `Bus ${name}`,
-          vn_kv: vnKv,
-          type: 'b',
-        },
-      ],
-      loads: [
-        ...nitwReference.loads,
-        {
-          id: loadId,
-          name,
-          bus_id: busId,
-          p_mw: pMw,
-          q_mvar: qMvar,
-          lat: draftNode.lat,
-          long: draftNode.lng,
-        },
-      ],
-      sensor_links: [
-        ...nitwReference.sensor_links,
-        {
-          sensor_id: sensorId,
-          element_type: 'load',
-          element_id: loadId,
-          measurement: 'p_mw',
-        },
-      ],
+      buildings: [...buildings, { id: buildingId, name, bus_id: busId, lat: draftBuilding.lat, long: draftBuilding.lng, gateway_hardware_id: hardwareIdForBuildingId(buildingId), sensor_count: 1, p_mw: pMw, q_mvar: qMvar }],
+      buses: [...nitwReference.buses, { id: busId, name: `Bus ${name}`, vn_kv: vnKv, type: 'b' }],
+      loads: [...nitwReference.loads, { id: loadId, name: firstSensorName, bus_id: busId, building_id: buildingId, sensor_index: 1, p_mw: pMw, q_mvar: qMvar, lat: draftBuilding.lat, long: draftBuilding.lng }],
+      sensor_links: [...nitwReference.sensor_links, { sensor_id: sensorId, element_type: 'load', element_id: loadId, measurement: 'p_mw' }],
     },
   }
 }
 
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+function buildNetworkWithAddedSensor(nitwReference: NitwReference, building: CampusBuilding, draftSensor: DraftSensor): NitwReference {
+  const name = draftSensor.name.trim()
+  if (!name) throw new Error('Node name is required')
+  const pMw = Number(draftSensor.pMw)
+  const qMvar = Number(draftSensor.qMvar)
+  if (!Number.isFinite(pMw) || pMw < 0) throw new Error('Active load must be a valid non-negative number')
+  if (!Number.isFinite(qMvar) || qMvar < 0) throw new Error('Reactive load must be a valid non-negative number')
+  const sensorIndex = building.sensorCount + 1
+  const suffix = String(sensorIndex).padStart(2, '0')
+  const loadId = buildUniqueId(`load_${slugify(building.name)}_${suffix}`, nitwReference.loads.map((load) => load.id))
+  const sensorId = buildUniqueId(`sensor_${slugify(building.name)}_${suffix}`, nitwReference.sensor_links.map((link) => link.sensor_id))
+  return {
+    ...nitwReference,
+    buildings: normalizedBuildings(nitwReference),
+    loads: [...nitwReference.loads, { id: loadId, name, bus_id: building.busId, building_id: building.id, sensor_index: sensorIndex, p_mw: pMw, q_mvar: qMvar, lat: building.lat, long: building.lng }],
+    sensor_links: [...nitwReference.sensor_links, { sensor_id: sensorId, element_type: 'load', element_id: loadId, measurement: 'p_mw' }],
+  }
+}
+
+function normalizedBuildings(nitwReference: NitwReference): NonNullable<NitwReference['buildings']> {
+  return nitwReference.buildings?.length ? nitwReference.buildings : deriveBuildingsFromLoads(nitwReference)
+}
+
+function deriveBuildingsFromLoads(nitwReference: NitwReference): NonNullable<NitwReference['buildings']> {
+  const buildingsById = new Map<string, NonNullable<NitwReference['buildings']>[number]>()
+  for (const load of nitwReference.loads) {
+    const buildingId = load.building_id ?? `building_${slugify(load.name || load.id || load.bus_id)}`
+    if (!buildingsById.has(buildingId)) {
+      buildingsById.set(buildingId, { id: buildingId, name: (load.name || buildingId).split(' Sensor ')[0], bus_id: load.bus_id, lat: load.lat, long: load.long, gateway_hardware_id: hardwareIdForBuildingId(buildingId), sensor_count: 0, p_mw: 0, q_mvar: 0 })
+    }
+    const current = buildingsById.get(buildingId)
+    if (!current) continue
+    current.sensor_count = (current.sensor_count ?? 0) + 1
+    current.p_mw = (current.p_mw ?? 0) + load.p_mw
+    current.q_mvar = (current.q_mvar ?? 0) + load.q_mvar
+  }
+  return Array.from(buildingsById.values())
+}
+
+function createInitialDraftBuilding(): DraftBuilding {
+  return { name: '', lat: 17.98369646253154, lng: 79.53082786635768, firstSensorName: 'Main panel sensor', pMw: '0.10', qMvar: '0.04', vnKv: '20' }
+}
+
+function fakeReadingForLoad(load: NitwReference['loads'][number] | undefined) {
+  if (!load) return 0
+  const checksum = Array.from(load.id).reduce((total, character) => total + character.charCodeAt(0), 0)
+  return Number((load.p_mw * (1 + (((checksum % 9) - 4) * 0.0125))).toFixed(4))
+}
+
+function isProblemComparisonStatus(status: string | null) {
+  return status === 'deviation' || status === 'topology_issue' || status === 'missing_actual' || status === 'missing_expected'
+}
+
+function fillColor(status: VisualStatus) { return status === 'healthy' ? '#64d7a1' : status === 'deviation' ? '#f09090' : '#7eb6ff' }
+function borderColor(status: VisualStatus) { return status === 'healthy' ? '#17885c' : status === 'deviation' ? '#c44747' : '#2e6bd3' }
+function edgeColor(status: VisualStatus) { return status === 'healthy' ? '#1b9f6e' : status === 'deviation' ? '#d74b4b' : '#2c70d8' }
+function statusLabel(status: VisualStatus) { return status === 'healthy' ? 'Healthy' : status === 'deviation' ? 'Deviation' : 'Unclaimed' }
+
+function comparisonLabel(status: string | null) {
+  if (!status) return 'Not run yet'
+  if (status === 'topology_issue') return 'Topology issue'
+  if (status === 'missing_actual') return 'Missing sensor value'
+  if (status === 'missing_expected') return 'Missing simulation value'
+  if (status === 'match') return 'Match'
+  if (status === 'deviation') return 'Deviation'
+  return status
 }
 
 function buildUniqueId(baseId: string, existingIds: string[]) {
-  if (!existingIds.includes(baseId)) {
-    return baseId
-  }
-
+  if (!existingIds.includes(baseId)) return baseId
   let counter = 2
-  while (existingIds.includes(`${baseId}_${counter}`)) {
-    counter += 1
-  }
+  while (existingIds.includes(`${baseId}_${counter}`)) counter += 1
   return `${baseId}_${counter}`
 }
 
-function hardwareIdForLoadId(loadId: string | undefined) {
-  if (!loadId) {
-    return ''
-  }
-  return `NODE-${loadId.replaceAll('_', '-').toUpperCase()}`
-}
-
-function formatMw(value: number) {
-  return `${value.toFixed(4)} MW`
-}
-
-function formatSignedMw(value: number) {
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${value.toFixed(4)} MW`
-}
-
-function comparisonLabel(status: string | null) {
-  if (!status) {
-    return 'Not run yet'
-  }
-  if (status === 'topology_issue') {
-    return 'Topology issue'
-  }
-  if (status === 'missing_actual') {
-    return 'Missing sensor value'
-  }
-  if (status === 'missing_expected') {
-    return 'Missing simulation value'
-  }
-  if (status === 'match') {
-    return 'Match'
-  }
-  if (status === 'deviation') {
-    return 'Deviation'
-  }
-  return status
-}
+function formatMw(value: number) { return `${value.toFixed(4)} MW` }
+function formatSignedMw(value: number) { return `${value > 0 ? '+' : ''}${value.toFixed(4)} MW` }
+function hardwareIdForBuildingId(buildingId: string | undefined) { return buildingId ? `BLDG-${buildingId.replaceAll('_', '-').toUpperCase()}` : '' }
+function slugify(value: string) { return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') }
+function extractSensorIndex(loadId: string) { const match = loadId.match(/_(\d+)$/); return match ? Number(match[1]) : 0 }
+function sum(values: number[]) { return values.reduce((total, value) => total + value, 0) }
 
 export default App
