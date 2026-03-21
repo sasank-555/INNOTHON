@@ -1,0 +1,289 @@
+.campus-shell {
+  min-height: 100vh;
+  padding: 1.5rem;
+  color: var(--text-main);
+}
+
+.campus-header,
+.campus-layout,
+.map-card__top,
+.legend,
+.panel-heading,
+.building-meta,
+.stat,
+.floor-row,
+.alert-card {
+  display: flex;
+}
+
+.campus-header {
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.campus-header h1,
+.panel-heading h2 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.live-pill,
+.status-badge,
+.floor-status {
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.live-pill {
+  background: rgba(10, 118, 100, 0.12);
+  color: #0a7664;
+}
+
+.campus-layout {
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.map-card {
+  flex: 1.6;
+  border: 1px solid rgba(12, 32, 44, 0.08);
+  border-radius: 1.6rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 24px 70px rgba(18, 33, 42, 0.12);
+}
+
+.map-card__top {
+  justify-content: flex-end;
+  padding: 0.9rem 1rem 0;
+}
+
+.campus-map {
+  height: 78vh;
+  width: 100%;
+}
+
+.campus-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.campus-overlay__svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.energy-line {
+  fill: none;
+  stroke-width: 5;
+  stroke-dasharray: 12 12;
+  animation: energy-flow 1.6s linear infinite;
+  opacity: 0.95;
+}
+
+.campus-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 126px;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 18px 40px rgba(18, 33, 42, 0.14);
+  pointer-events: auto;
+  text-align: left;
+}
+
+.campus-node strong,
+.campus-node--station span:first-child {
+  display: block;
+}
+
+.campus-node span {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--text-muted);
+}
+
+.campus-node--station {
+  min-width: 142px;
+  background: #152730;
+  color: #f6f3ec;
+  text-align: center;
+}
+
+.campus-node--station span {
+  color: inherit;
+}
+
+.campus-node.is-selected {
+  outline: 3px solid rgba(10, 118, 100, 0.22);
+}
+
+.side-panel {
+  flex: 0.78;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.panel {
+  padding: 1rem;
+  border-radius: 1.4rem;
+  border: 1px solid rgba(12, 32, 44, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 54px rgba(18, 33, 42, 0.1);
+}
+
+.panel--stats {
+  gap: 0.8rem;
+}
+
+.stat {
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(12, 32, 44, 0.08);
+}
+
+.stat:last-child {
+  border-bottom: 0;
+}
+
+.stat span,
+.building-meta span,
+.floor-row span,
+.alert-card span {
+  color: var(--text-muted);
+}
+
+.stat strong {
+  font-size: 1.45rem;
+}
+
+.legend {
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  color: var(--text-muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legend-dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.panel-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.building-meta {
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.floor-list,
+.alert-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.floor-row {
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 0.9rem;
+  border-radius: 1rem;
+  background: rgba(245, 241, 234, 0.8);
+}
+
+.floor-row strong {
+  display: block;
+  margin-bottom: 0.12rem;
+}
+
+.alert-card {
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  background: rgba(245, 241, 234, 0.9);
+  text-align: left;
+}
+
+.empty-state {
+  padding: 1rem;
+  border-radius: 1rem;
+  background: rgba(245, 241, 234, 0.8);
+  color: var(--text-muted);
+}
+
+.status-normal {
+  background: rgba(27, 159, 110, 0.14);
+  color: #16795b;
+  stroke: #1b9f6e;
+}
+
+.status-suspicious {
+  background: rgba(225, 171, 47, 0.16);
+  color: #996d05;
+  stroke: #d3a11b;
+}
+
+.status-anomaly {
+  background: rgba(209, 73, 73, 0.14);
+  color: #af3434;
+  stroke: #d14949;
+}
+
+@keyframes energy-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@media (max-width: 1100px) {
+  .campus-layout {
+    flex-direction: column;
+  }
+
+  .campus-map {
+    height: 62vh;
+  }
+}
+
+@media (max-width: 720px) {
+  .campus-shell {
+    padding: 1rem;
+  }
+
+  .campus-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .panel-heading,
+  .floor-row,
+  .alert-card,
+  .building-meta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
