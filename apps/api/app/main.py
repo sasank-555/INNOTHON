@@ -3,11 +3,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import initialize_database
 from app.dependencies import get_current_user
+from app.model_runtime import (
+    analyze_model_graph,
+    compare_model_network,
+    sample_graph_snapshot,
+    simulate_model_network,
+)
 from app.mqtt_service import mqtt_bridge
 from app.schemas import (
     AuthResponse,
@@ -17,6 +24,9 @@ from app.schemas import (
     DeviceSummary,
     IngestResponse,
     LoginRequest,
+    ModelCompareRequest,
+    ModelGraphAnalyzeRequest,
+    ModelServiceResponse,
     MqttStatusResponse,
     RegisterRequest,
     TelemetryPayload,
@@ -45,12 +55,16 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
+    if getattr(settings, "model_only_mode", False):
+        return
     initialize_database()
     mqtt_bridge.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
+    if getattr(settings, "model_only_mode", False):
+        return
     mqtt_bridge.stop()
 
 
@@ -119,3 +133,171 @@ def ingest_http(payload: TelemetryPayload) -> IngestResponse:
         serverTimestamp=datetime.now(timezone.utc),
         commands=commands,
     )
+
+
+@app.post("/model/simulate-network", response_model=ModelServiceResponse)
+def simulate_network(payload: dict) -> ModelServiceResponse:
+    return ModelServiceResponse(**simulate_model_network(payload))
+
+
+@app.post("/model/compare-network", response_model=ModelServiceResponse)
+def compare_network(payload: ModelCompareRequest) -> ModelServiceResponse:
+    return ModelServiceResponse(
+        **compare_model_network(payload.network_payload, payload.readings_payload)
+    )
+
+
+@app.post("/model/analyze-graph", response_model=ModelServiceResponse)
+def analyze_graph(payload: ModelGraphAnalyzeRequest) -> ModelServiceResponse:
+    return ModelServiceResponse(**analyze_model_graph(payload.snapshot))
+
+
+@app.get("/model/sample-graph")
+def get_model_sample_graph() -> dict:
+    return sample_graph_snapshot()
+
+
+@app.get("/model/test-ui", response_class=HTMLResponse)
+def get_model_test_ui() -> str:
+    return """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>INNOTHON Model Tester</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Segoe UI, sans-serif;
+        background: #f5efe7;
+        color: #1f1a17;
+      }
+      .page {
+        display: grid;
+        grid-template-columns: 420px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      .panel {
+        padding: 24px;
+        background: #fff8f1;
+        border-right: 1px solid #e6d7c7;
+      }
+      .panel h1 {
+        margin: 0 0 12px;
+        font-size: 32px;
+      }
+      .panel p {
+        color: #6d5b4d;
+      }
+      textarea {
+        width: 100%;
+        min-height: 420px;
+        margin-top: 12px;
+        padding: 12px;
+        box-sizing: border-box;
+        border-radius: 12px;
+        border: 1px solid #d8c7b7;
+        background: #fffdf9;
+        font: 13px/1.45 Consolas, monospace;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: #1f1a17;
+        color: #fff8f1;
+        padding: 12px 18px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #c46027;
+      }
+      .results {
+        padding: 24px;
+      }
+      pre {
+        margin: 0;
+        padding: 16px;
+        border-radius: 14px;
+        background: #1f1a17;
+        color: #f8eee0;
+        overflow: auto;
+        min-height: 100px;
+      }
+      .status {
+        margin-top: 12px;
+        color: #6d5b4d;
+        font-weight: 600;
+      }
+      @media (max-width: 980px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+        .panel {
+          border-right: 0;
+          border-bottom: 1px solid #e6d7c7;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="panel">
+        <h1>Model Tester</h1>
+        <p>Load the sample graph, tweak it, and send it to the backend model endpoint.</p>
+        <div class="actions">
+          <button id="loadSample">Load sample</button>
+          <button id="runAnalyze" class="secondary">Run analyze-graph</button>
+        </div>
+        <div class="status" id="status">Ready.</div>
+        <textarea id="payloadEditor"></textarea>
+      </section>
+      <section class="results">
+        <h2>Response</h2>
+        <pre id="responseViewer">{}</pre>
+      </section>
+    </div>
+    <script>
+      const payloadEditor = document.getElementById('payloadEditor');
+      const responseViewer = document.getElementById('responseViewer');
+      const status = document.getElementById('status');
+
+      async function loadSample() {
+        status.textContent = 'Loading sample graph...';
+        const response = await fetch('/model/sample-graph');
+        const payload = await response.json();
+        payloadEditor.value = JSON.stringify({ snapshot: payload }, null, 2);
+        status.textContent = 'Sample graph loaded.';
+      }
+
+      async function runAnalyze() {
+        try {
+          status.textContent = 'Calling /model/analyze-graph...';
+          const payload = JSON.parse(payloadEditor.value);
+          const response = await fetch('/model/analyze-graph', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const body = await response.json();
+          responseViewer.textContent = JSON.stringify(body, null, 2);
+          status.textContent = response.ok ? 'Analysis complete.' : 'Request failed.';
+        } catch (error) {
+          status.textContent = 'Invalid JSON or request error.';
+          responseViewer.textContent = String(error);
+        }
+      }
+
+      document.getElementById('loadSample').addEventListener('click', loadSample);
+      document.getElementById('runAnalyze').addEventListener('click', runAnalyze);
+      loadSample();
+    </script>
+  </body>
+</html>
+"""
