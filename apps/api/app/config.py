@@ -11,10 +11,23 @@ class Settings:
     jwt_algorithm: str = "HS256"
     cors_origins: tuple[str, ...] = tuple(
         origin.strip()
-        for origin in os.getenv("INNOTHON_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+        for origin in os.getenv("INNOTHON_CORS_ORIGINS", "mongodb+srv://sarangkulkarni:untu2005@cluster0.ukspo.mongodb.net/").split(",")
         if origin.strip()
     )
-    database_path: str = os.getenv("INNOTHON_DB_PATH", "apps/api/data/innothon.db")
+    mongodb_uri: str = os.getenv("INNOTHON_MONGODB_URI", "mongodb://127.0.0.1:27017")
+    mongodb_database: str = os.getenv("INNOTHON_MONGODB_DATABASE", "innothon")
+    mqtt_enabled: bool = os.getenv("INNOTHON_MQTT_ENABLED", "true").lower() == "true"
+    mqtt_host: str = os.getenv("INNOTHON_MQTT_HOST", "127.0.0.1")
+    mqtt_port: int = int(os.getenv("INNOTHON_MQTT_PORT", "1883"))
+    mqtt_username: str | None = os.getenv("INNOTHON_MQTT_USERNAME")
+    mqtt_password: str | None = os.getenv("INNOTHON_MQTT_PASSWORD")
+    mqtt_keepalive: int = int(os.getenv("INNOTHON_MQTT_KEEPALIVE", "60"))
+    mqtt_client_id: str = os.getenv("INNOTHON_MQTT_CLIENT_ID", "innothon-backend")
+    mqtt_telemetry_topic: str = os.getenv("INNOTHON_MQTT_TELEMETRY_TOPIC", "devices/+/telemetry")
+    mqtt_command_topic_template: str = os.getenv(
+        "INNOTHON_MQTT_COMMAND_TOPIC_TEMPLATE",
+        "devices/{hardware_id}/commands",
+    )
 
 
 settings = Settings()

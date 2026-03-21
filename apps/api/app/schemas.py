@@ -23,7 +23,7 @@ class AuthResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    id: int
+    id: str
     email: EmailStr
 
 
@@ -39,7 +39,7 @@ class SensorManifestItem(BaseModel):
 
 
 class DeviceSummary(BaseModel):
-    id: int
+    id: str
     hardwareId: str
     deviceModel: str
     relayCount: int
@@ -85,6 +85,13 @@ class IngestResponse(BaseModel):
     status: Literal["ok"]
     serverTimestamp: datetime
     commands: list[DeviceCommandResponse]
+
+
+class MqttStatusResponse(BaseModel):
+    enabled: bool
+    connected: bool
+    lastMessageAt: datetime | None = None
+    lastError: str | None = None
 
 
 class ReadingResponse(BaseModel):

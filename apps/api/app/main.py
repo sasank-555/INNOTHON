@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import initialize_database
 from app.dependencies import get_current_user
+from app.mqtt_service import mqtt_bridge
 from app.schemas import (
     AuthResponse,
     ClaimDeviceRequest,
@@ -16,6 +17,7 @@ from app.schemas import (
     DeviceSummary,
     IngestResponse,
     LoginRequest,
+    MqttStatusResponse,
     RegisterRequest,
     TelemetryPayload,
 )
@@ -44,11 +46,27 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     initialize_database()
+    mqtt_bridge.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    mqtt_bridge.stop()
 
 
 @app.get("/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/mqtt/status", response_model=MqttStatusResponse)
+def get_mqtt_status() -> MqttStatusResponse:
+    return MqttStatusResponse(
+        enabled=mqtt_bridge.status.enabled,
+        connected=mqtt_bridge.status.connected,
+        lastMessageAt=mqtt_bridge.status.last_message_at,
+        lastError=mqtt_bridge.status.last_error,
+    )
 
 
 @app.post("/auth/register", response_model=AuthResponse, status_code=201)
@@ -74,13 +92,13 @@ def list_devices(current_user: dict = Depends(get_current_user)) -> list[DeviceS
 
 
 @app.get("/devices/{device_id}", response_model=DeviceSummary)
-def get_device(device_id: int, current_user: dict = Depends(get_current_user)) -> DeviceSummary:
+def get_device(device_id: str, current_user: dict = Depends(get_current_user)) -> DeviceSummary:
     return get_device_summary(device_id, current_user["id"], include_token=True)
 
 
 @app.post("/devices/{device_id}/commands", response_model=DeviceCommandResponse, status_code=201)
 def create_command(
-    device_id: int,
+    device_id: str,
     payload: DeviceCommandCreateRequest,
     current_user: dict = Depends(get_current_user),
 ) -> DeviceCommandResponse:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.database import get_connection
+from app.database import parse_object_id, users_collection
 from app.security import decode_access_token
 
 
@@ -20,14 +20,13 @@ def get_current_user(
         )
 
     payload = decode_access_token(credentials.credentials)
-    with get_connection() as connection:
-        user = connection.execute(
-            "SELECT id, email FROM users WHERE id = ?",
-            (payload["sub"],),
-        ).fetchone()
+    try:
+        user = users_collection().find_one({"_id": parse_object_id(payload["sub"])})
+    except Exception:
+        user = None
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User no longer exists.",
         )
-    return {"id": user["id"], "email": user["email"]}
+    return {"id": str(user["_id"]), "email": user["email"]}
