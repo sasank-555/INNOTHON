@@ -368,6 +368,8 @@ def _send_message(message: EmailMessage, settings: NotificationEmailSettings) ->
 
         try:
             client.send_message(message)
+        except smtplib.SMTPResponseException as error:
+            raise ValueError(_smtp_response_error_message(error)) from error
         except smtplib.SMTPException as error:
             raise ValueError(f"SMTP send failed: {error}") from error
 
@@ -384,3 +386,27 @@ def _resolved_smtp_username(settings: NotificationEmailSettings) -> str:
 
 def _resolved_smtp_password(settings: NotificationEmailSettings) -> str:
     return (settings.smtp_password or "").replace(" ", "").strip()
+
+
+def _smtp_response_error_message(error: smtplib.SMTPResponseException) -> str:
+    code = int(getattr(error, "smtp_code", 0) or 0)
+    raw_error = getattr(error, "smtp_error", b"")
+    decoded = raw_error.decode("utf-8", errors="replace") if isinstance(raw_error, (bytes, bytearray)) else str(raw_error)
+    compact = " ".join(decoded.split())
+    lowered = compact.lower()
+
+    if "daily user sending limit exceeded" in lowered:
+        return (
+            "SMTP send failed: the configured Gmail account has exceeded its daily sending limit. "
+            "Wait for the quota reset or switch INNOTHON_SMTP_USERNAME/INNOTHON_SMTP_PASSWORD to another SMTP account."
+        )
+    if code == 535 or "authentication failed" in lowered:
+        return (
+            "SMTP authentication failed. Verify INNOTHON_SMTP_USERNAME, INNOTHON_SMTP_PASSWORD, and that the mailbox allows app-password SMTP access."
+        )
+    if code == 530 or "starttls" in lowered:
+        return "SMTP server requires TLS. Enable INNOTHON_SMTP_USE_TLS=true or verify the SMTP port/settings."
+    if code == 550 and "sender" in lowered:
+        return "SMTP sender rejected. Ensure INNOTHON_FROM_EMAIL matches the authenticated SMTP account."
+
+    return f"SMTP send failed ({code}): {compact}" if compact else f"SMTP send failed with SMTP code {code}."

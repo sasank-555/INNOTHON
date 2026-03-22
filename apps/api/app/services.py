@@ -84,6 +84,7 @@ def claim_device(user_id: str, hardware_id: str, manufacturer_password: str) -> 
             }
         },
     )
+    _claim_related_sensor_devices(user_id, device)
     return get_device_summary(str(device["_id"]), user_id, include_token=True)
 
 
@@ -281,6 +282,42 @@ def ensure_device_access(device_id: str, user_id: str) -> None:
         device = None
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found for this user.")
+
+
+def _claim_related_sensor_devices(user_id: str, building_device: dict) -> None:
+    building_id = str(building_device.get("node_id") or "").strip()
+    if str(building_device.get("node_kind") or "").strip() != "building" or not building_id:
+        return
+
+    device_token = building_device.get("device_auth_token")
+    related_devices = sold_devices_collection().find(
+        {
+            "node_kind": "sensor",
+            "building_id": building_id,
+        }
+    )
+    for related_device in related_devices:
+        claims_collection().update_one(
+            {"user_id": user_id, "device_id": str(related_device["_id"])},
+            {
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "device_id": str(related_device["_id"]),
+                    "claimed_at": utc_now(),
+                }
+            },
+            upsert=True,
+        )
+        sold_devices_collection().update_one(
+            {"_id": related_device["_id"]},
+            {
+                "$set": {
+                    "claim_status": "claimed",
+                    "device_auth_token": related_device.get("device_auth_token") or device_token or issue_device_token(),
+                    "updated_at": utc_now(),
+                }
+            },
+        )
 
 
 def _sensor_manifest_index(device: dict) -> dict[str, dict]:

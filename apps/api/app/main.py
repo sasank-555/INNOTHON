@@ -30,6 +30,7 @@ from app.mqtt_service import mqtt_bridge
 from app.notification_service.router import router as notification_router
 from app.replay_service import get_training_replay_window
 from app.sensor_simulator import sensor_simulator
+from app.solar_storage_optimizer import optimize_solar_storage, optimize_solar_storage_batch
 from app.schemas import (
     AuthResponse,
     ClaimDeviceRequest,
@@ -43,6 +44,8 @@ from app.schemas import (
     ModelServiceResponse,
     MqttStatusResponse,
     RegisterRequest,
+    SolarStorageOptimizationBatchRequest,
+    SolarStorageOptimizationRequest,
     TelemetryPayload,
 )
 from app.services import (
@@ -207,6 +210,16 @@ def compare_network(payload: ModelCompareRequest) -> ModelServiceResponse:
 @app.post("/model/analyze-graph", response_model=ModelServiceResponse)
 def analyze_graph(payload: ModelGraphAnalyzeRequest) -> ModelServiceResponse:
     return ModelServiceResponse(**analyze_model_graph(payload.snapshot))
+
+
+@app.post("/model/solar-storage-optimization")
+def get_solar_storage_optimization(payload: SolarStorageOptimizationRequest) -> dict:
+    return optimize_solar_storage(payload)
+
+
+@app.post("/model/solar-storage-optimization/batch")
+def get_solar_storage_optimization_batch(payload: SolarStorageOptimizationBatchRequest) -> dict:
+    return optimize_solar_storage_batch(payload)
 
 
 @app.get("/model/sample-graph")

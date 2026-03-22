@@ -182,6 +182,7 @@ def initialize_database() -> None:
     repair_networks_from_load_devices()
     ensure_device_tokens()
     migrate_single_owner_claims()
+    ensure_related_sensor_device_claims()
 
 
 def seed_demo_device() -> None:
@@ -319,6 +320,7 @@ def seed_nitw_graph_devices() -> None:
             upsert=True,
         )
 
+    sync_network_real_sensor_devices(payload, now)
     ensure_network_demo_sensor_readings(payload)
 
 
@@ -336,6 +338,24 @@ def graph_building_hardware_id(building_id: str) -> str:
 
 def graph_building_claim_password(building_id: str) -> str:
     return f"claim-{building_id}"
+
+
+REAL_WORLD_SENSOR_DEVICE_BY_BUILDING_ID = {
+    "building_lh": {
+        "hardware_id": "ESP001",
+        "display_name": "LH Sensor 11",
+        "sensor_id": "sensor_lh_11",
+        "load_id": "load_lh_11",
+        "sensor_name": "LH Sensor 11",
+    }
+}
+
+
+def load_weights_for_building(building_id: str) -> list[float]:
+    default_weights = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.1, 0.12, 0.15, 0.18]
+    if building_id == "building_lh":
+        return [*default_weights, 0.55]
+    return default_weights
 
 
 def slugify_identifier(value: str) -> str:
@@ -369,11 +389,11 @@ def build_large_nitw_network_payload() -> dict[str, Any]:
         }
     ]
 
-    load_weights = [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.1, 0.12, 0.15, 0.18]
     for building_index, base_load in enumerate(_building_demo_base_loads(), start=1):
         building_name = str(base_load.get("name") or f"Building {building_index}")
         slug = slugify_identifier(building_name) or f"building_{building_index}"
         building_id = f"building_{slug}"
+        load_weights = load_weights_for_building(building_id)
         bus_id = f"bus_{slug}"
         lat = float(base_load.get("lat", 17.98369646253154))
         lng = float(base_load.get("long", 79.53082786635768))
@@ -468,7 +488,16 @@ def seed_nitw_network() -> None:
     existing = networks_collection().find_one({"network.name": "NITW"})
     if existing and existing.get("payload"):
         existing_payload = normalize_network_payload(existing["payload"])
-        if len(existing_payload.get("buildings", [])) >= 10 and len(existing_payload.get("loads", [])) >= 100:
+        known_load_ids = {
+            str(load.get("id"))
+            for load in existing_payload.get("loads", [])
+            if load.get("id")
+        }
+        if (
+            len(existing_payload.get("buildings", [])) >= 10
+            and len(existing_payload.get("loads", [])) >= 101
+            and "load_lh_11" in known_load_ids
+        ):
             return
 
     sync_network_payload(build_large_nitw_network_payload(), kind="reference-network")
@@ -979,6 +1008,121 @@ def sync_network_building_devices(payload: dict[str, Any], timestamp: str) -> No
                     "claim_status": "unclaimed",
                     "sold_to_user_id": None,
                     "device_auth_token": None,
+                    "created_at": timestamp,
+                },
+            },
+            upsert=True,
+        )
+
+
+def ensure_related_sensor_device_claims() -> None:
+    devices = sold_devices_collection()
+    claims = claims_collection()
+    now = utc_now()
+
+    for building_device in devices.find({"node_kind": "building"}):
+        building_id = str(building_device.get("node_id") or "").strip()
+        if not building_id:
+            continue
+
+        related_sensor_devices = list(devices.find({"node_kind": "sensor", "building_id": building_id}))
+        if not related_sensor_devices:
+            continue
+
+        building_claims = list(claims.find({"device_id": str(building_device["_id"])}))
+        if not building_claims:
+            continue
+
+        for sensor_device in related_sensor_devices:
+            for claim in building_claims:
+                claims.update_one(
+                    {"user_id": claim["user_id"], "device_id": str(sensor_device["_id"])},
+                    {
+                        "$setOnInsert": {
+                            "user_id": claim["user_id"],
+                            "device_id": str(sensor_device["_id"]),
+                            "claimed_at": now,
+                        }
+                    },
+                    upsert=True,
+                )
+            devices.update_one(
+                {"_id": sensor_device["_id"]},
+                {"$set": {"claim_status": "claimed", "updated_at": now}},
+            )
+
+def sync_network_real_sensor_devices(payload: dict[str, Any], timestamp: str) -> None:
+    from app.security import hash_password, issue_device_token
+
+    devices = sold_devices_collection()
+    network_name = payload["network"]["name"]
+    buildings_by_id = {
+        str(building["id"]): building
+        for building in payload.get("buildings", [])
+        if building.get("id")
+    }
+    loads_by_id = {
+        str(load["id"]): load
+        for load in payload.get("loads", [])
+        if load.get("id")
+    }
+    sensor_links_by_load_id = {
+        str(link.get("element_id")): str(link.get("sensor_id"))
+        for link in payload.get("sensor_links", [])
+        if link.get("element_type") == "load" and link.get("element_id") and link.get("sensor_id")
+    }
+
+    for building_id, config in REAL_WORLD_SENSOR_DEVICE_BY_BUILDING_ID.items():
+        building = buildings_by_id.get(building_id)
+        load_id = str(config["load_id"])
+        load = loads_by_id.get(load_id)
+        sensor_id = sensor_links_by_load_id.get(load_id)
+        if building is None or load is None or sensor_id != config["sensor_id"]:
+            continue
+
+        hardware_id = str(config["hardware_id"])
+        existing = devices.find_one({"hardware_id": hardware_id}) or {}
+        devices.update_one(
+            {"hardware_id": hardware_id},
+            {
+                "$set": {
+                    "display_name": str(config["display_name"]),
+                    "sensor_manifest": [
+                        {
+                            "sensorId": sensor_id,
+                            "sensorType": "p_mw",
+                            "unit": "MW",
+                            "measurement": "p_mw",
+                            "loadId": load_id,
+                            "loadName": load.get("name"),
+                            "buildingId": building_id,
+                            "busId": load.get("bus_id"),
+                        }
+                    ],
+                    "relay_count": 1,
+                    "firmware_version": "esp32-mqtt-realworld-1.0.0",
+                    "network_name": network_name,
+                    "node_id": load_id,
+                    "node_kind": "sensor",
+                    "building_id": building_id,
+                    "linked_building_hardware_id": graph_building_hardware_id(building_id),
+                    "bus_id": load.get("bus_id"),
+                    "mqtt_payload_mode": "esp-simple-power",
+                    "mqtt_command_mode": "plain-text-relay",
+                    "location": {
+                        "latitude": load.get("lat", building.get("lat")),
+                        "longitude": load.get("long", building.get("long")),
+                    },
+                    "source_payload": load,
+                    "updated_at": timestamp,
+                    "device_auth_token": existing.get("device_auth_token") or issue_device_token(),
+                    "claim_status": existing.get("claim_status", "unclaimed"),
+                },
+                "$setOnInsert": {
+                    "hardware_id": hardware_id,
+                    "manufacturer_password_hash": hash_password(graph_building_claim_password(building_id)),
+                    "device_model": "ESP32-MQTT-REAL-SENSOR",
+                    "sold_to_user_id": None,
                     "created_at": timestamp,
                 },
             },

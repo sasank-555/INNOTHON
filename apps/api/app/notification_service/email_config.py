@@ -2,22 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.config import settings
+
 
 @dataclass(frozen=True)
 class NotificationConfig:
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_username: str = "sarangkulkarni1104@gmail.com"
-    smtp_password: str = "xwxx nluz cdwg ochq"
-    from_email: str = "sarangkulkarni1104@gmail.com"
-    from_name: str = "INNOTHON Alerts"
-    reply_to: str | None = None
-    use_tls: bool = True
-    use_ssl: bool = False
-    dry_run: bool = False
-    timeout_seconds: float = 20.0
-    action_base_url: str = "http://127.0.0.1:8000/notifications/action"
-    action_secret: str = "replace-with-a-long-random-secret"
+    smtp_host: str = settings.notification_smtp_host
+    smtp_port: int = settings.notification_smtp_port
+    smtp_username: str = settings.notification_smtp_username
+    smtp_password: str = settings.notification_smtp_password
+    from_email: str = settings.notification_from_email
+    from_name: str = settings.notification_from_name
+    reply_to: str | None = settings.notification_reply_to
+    use_tls: bool = settings.notification_use_tls
+    use_ssl: bool = settings.notification_use_ssl
+    dry_run: bool = settings.notification_dry_run
+    timeout_seconds: float = settings.notification_timeout_seconds
+    action_base_url: str = settings.notification_action_base_url
+    action_secret: str = settings.notification_action_secret
 
 
 notification_config = NotificationConfig()

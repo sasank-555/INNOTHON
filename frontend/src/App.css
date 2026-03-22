@@ -58,7 +58,9 @@
 
 .auth-form input,
 .claim-box input,
-.composer-form input {
+.composer-form input,
+.optimizer-grid input,
+.optimizer-grid select {
   border: 1px solid rgba(14, 48, 61, 0.14);
   border-radius: 0.9rem;
   padding: 0.8rem 0.9rem;
@@ -203,6 +205,13 @@
 .panel--alerts {
   display: grid;
   gap: 0.8rem;
+}
+
+.panel--optimizer {
+  display: grid;
+  gap: 0.9rem;
+  border: 1px solid rgba(198, 132, 24, 0.16);
+  background: linear-gradient(180deg, rgba(255, 250, 239, 0.98), rgba(255, 255, 255, 0.94));
 }
 
 .panel--legend {
@@ -463,6 +472,67 @@ button.building-row {
 .composer-form {
   display: grid;
   gap: 0.7rem;
+}
+
+.optimizer-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+}
+
+.optimizer-grid label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.optimizer-summary {
+  display: grid;
+  gap: 0.35rem;
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(14, 48, 61, 0.08);
+}
+
+.optimizer-summary span,
+.optimizer-footer span,
+.optimizer-section li {
+  color: var(--text-muted);
+}
+
+.optimizer-metrics {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+
+.optimizer-sections {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.optimizer-section {
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(14, 48, 61, 0.08);
+}
+
+.optimizer-section ul {
+  margin: 0.65rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.optimizer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  justify-content: space-between;
+  border-top: 1px solid rgba(14, 48, 61, 0.08);
+  padding-top: 0.2rem;
 }
 
 .composer-actions {

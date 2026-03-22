@@ -13,6 +13,7 @@ import {
 } from './aiModel'
 import { buildFrontendTelemetryPacket, FRONTEND_SENSOR_INTERVAL_MS } from './sensorSimulation'
 import {
+  API_BASE_URL,
   claimDevice,
   compareNitwNetwork,
   controlSensor,
@@ -20,11 +21,14 @@ import {
   fetchInventory,
   fetchNitwReference,
   loginUser,
+  optimizeSolarStorageBatch,
   registerUser,
   syncNetwork,
   type DeviceRecord,
   type LiveFeedEvent,
   type NitwReference,
+  type SolarStorageOptimizationRequest,
+  type SolarStorageOptimizationResponse,
   triggerSafetyNotification,
 } from './serviceX'
 
@@ -48,6 +52,9 @@ type BuildingSensor = {
   name: string
   sensorId: string
   sensorIndex: number
+  controlHardwareId: string
+  controlDeviceId: string | null
+  controlRelayNumber: number
   isActive: boolean
   expectedMw: number
   currentMw: number
@@ -89,6 +96,11 @@ type SensorIncidentState = {
   enteredAtMs: number
   warningSent: boolean
   shutdownTriggered: boolean
+}
+type BuildingOptimizationScenario = {
+  buildingId: string
+  buildingName: string
+  request: SolarStorageOptimizationRequest
 }
 
 const SESSION_KEY = 'innothon-session'
@@ -139,10 +151,21 @@ function App() {
   const [saveSensorError, setSaveSensorError] = useState('')
   const [sensorToggleBusyId, setSensorToggleBusyId] = useState<string | null>(null)
   const [sensorToggleError, setSensorToggleError] = useState('')
+  const [optimizationByBuildingId, setOptimizationByBuildingId] = useState<Record<string, SolarStorageOptimizationResponse>>({})
+  const [optimizationBusy, setOptimizationBusy] = useState(false)
+  const [optimizationError, setOptimizationError] = useState('')
   const liveReadingsRef = useRef<Record<string, number>>({})
   const sensorHistoryRef = useRef<Record<string, SensorHistoryPoint[]>>({})
   const simulationTickRef = useRef(0)
   const sensorIncidentRef = useRef<Record<string, SensorIncidentState>>({})
+  const realtimeSensorIds = useMemo(
+    () => new Set(
+      claimedDevices
+        .filter((device) => device.nodeKind === 'sensor')
+        .flatMap((device) => device.sensorManifest.map((item) => item.sensorId)),
+    ),
+    [claimedDevices],
+  )
 
   useEffect(() => {
     if (session) void loadDashboard(session.token, false)
@@ -203,6 +226,7 @@ function App() {
         simulationTickRef.current,
         new Date().toISOString(),
       )
+      packet.updates = packet.updates.filter((update) => !realtimeSensorIds.has(update.sensorId))
       const nextState = applyLiveTelemetryPacket(
         nitwReference,
         packet,
@@ -227,13 +251,52 @@ function App() {
       if (compareTimeoutId) window.clearTimeout(compareTimeoutId)
       if (intervalId) window.clearInterval(intervalId)
     }
-  }, [nitwReference, session, supervised])
+  }, [nitwReference, realtimeSensorIds, session, supervised])
+
+  useEffect(() => {
+    if (!session || !nitwReference) return
+
+    const websocketUrl = `${API_BASE_URL.replace(/^http/i, 'ws')}/ws/live-readings?token=${encodeURIComponent(session.token)}`
+    const socket = new WebSocket(websocketUrl)
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as LiveFeedEvent
+        if (payload.type !== 'telemetry_packet') return
+        const nextState = applyLiveTelemetryPacket(
+          nitwReference,
+          payload,
+          liveReadingsRef.current,
+          sensorHistoryRef.current,
+        )
+        liveReadingsRef.current = nextState.readings
+        sensorHistoryRef.current = nextState.history
+        setSimulatedReadings(nextState.readings)
+        setSensorHistory(nextState.history)
+        setSimulationUpdatedAt(nextState.updatedAt)
+      } catch (error) {
+        console.warn('Live telemetry socket message failed', error)
+      }
+    }
+
+    return () => {
+      socket.close()
+    }
+  }, [nitwReference, session])
 
   const baseBuildings = useMemo<CampusBuilding[]>(() => {
     if (!nitwReference) return []
     const buildingRows = normalizedBuildings(nitwReference)
     const inv = new Map(inventory.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
     const claimed = new Map(claimedDevices.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
+    const claimedSensorDevicesByBuildingId = new Map<string, DeviceRecord[]>()
+    for (const device of claimedDevices.filter((d) => d.nodeKind === 'sensor')) {
+      const buildingId = device.sensorManifest.find((item) => item.buildingId)?.buildingId
+      if (!buildingId) continue
+      const current = claimedSensorDevicesByBuildingId.get(buildingId) ?? []
+      current.push(device)
+      claimedSensorDevicesByBuildingId.set(buildingId, current)
+    }
     const loadsByBuildingId = new Map<string, NitwReference['loads']>()
     for (const load of nitwReference.loads) {
       const buildingId = load.building_id ?? `building_${slugify(load.name || load.id || load.bus_id)}`
@@ -246,17 +309,23 @@ function App() {
       const hardwareId = building.gateway_hardware_id ?? hardwareIdForBuildingId(building.id)
       const inventoryDevice = inv.get(hardwareId)
       const claimedDevice = claimed.get(hardwareId)
-      const readingBySensorId = new Map((claimedDevice?.latestReadings ?? []).map((r) => [r.sensorId, r]))
+      const sensorDevices = claimedSensorDevicesByBuildingId.get(building.id) ?? []
+      const readingBySensorId = new Map(
+        [claimedDevice, ...sensorDevices]
+          .filter((device): device is DeviceRecord => Boolean(device))
+          .flatMap((device) => device.latestReadings.map((reading) => [reading.sensorId, reading] as const)),
+      )
       const sensors = (loadsByBuildingId.get(building.id) ?? []).map((load) => {
         const sensorId = linkByElementId.get(load.id) ?? `sensor_${load.id}`
         const isActive = load.is_active !== false
         const latest = readingBySensorId.get(sensorId)
+        const preferredControlDevice = sensorDevices.find((device) => device.sensorManifest.some((item) => item.sensorId === sensorId)) ?? claimedDevice
         const currentMw = !isActive
           ? 0
-          : typeof simulatedReadings[sensorId] === 'number'
-            ? simulatedReadings[sensorId]
-            : typeof latest?.value === 'number'
-              ? latest.value
+          : typeof latest?.value === 'number'
+            ? latest.value
+            : typeof simulatedReadings[sensorId] === 'number'
+              ? simulatedReadings[sensorId]
               : fakeReadingForLoad(load)
         const comparison = isActive && supervised ? compareByElementId[load.id] : undefined
         const reviewDecision = isActive ? reviewBySensorId[load.id] ?? null : null
@@ -271,6 +340,9 @@ function App() {
           name: load.name,
           sensorId,
           sensorIndex: load.sensor_index ?? extractSensorIndex(load.id),
+          controlHardwareId: preferredControlDevice?.hardwareId ?? hardwareId,
+          controlDeviceId: preferredControlDevice?.id ?? null,
+          controlRelayNumber: preferredControlDevice?.nodeKind === 'sensor' ? 1 : load.sensor_index ?? extractSensorIndex(load.id),
           isActive,
           expectedMw: isActive ? load.p_mw ?? 0 : 0,
           currentMw,
@@ -342,6 +414,71 @@ function App() {
   const selectedBuildingHasActiveSensors = Boolean(selectedBuilding?.sensors.some((sensor) => sensor.isActive))
   const selectedBuildingActiveSensorCount = selectedBuilding?.sensors.filter((sensor) => sensor.isActive).length ?? 0
   const selectedBuildingModel = selectedBuilding ? modelInsights.buildings[selectedBuilding.id] : null
+  const buildingOptimizationScenarios = useMemo<BuildingOptimizationScenario[]>(
+    () => buildings.map((building) => ({
+      buildingId: building.id,
+      buildingName: building.name,
+      request: createRealtimeOptimizationRequest(
+        building,
+        simulationUpdatedAt,
+        modelInsights.buildings[building.id],
+      ),
+    })),
+    [buildings, modelInsights.buildings, simulationUpdatedAt],
+  )
+  const selectedBuildingOptimization = selectedBuilding ? optimizationByBuildingId[selectedBuilding.id] ?? null : null
+
+  useEffect(() => {
+    if (!session || !buildingOptimizationScenarios.length) {
+      setOptimizationByBuildingId({})
+      setOptimizationBusy(false)
+      setOptimizationError('')
+      return
+    }
+
+    let cancelled = false
+    const timeoutId = window.setTimeout(async () => {
+      setOptimizationBusy(true)
+      try {
+        const result = await optimizeSolarStorageBatch(session.token, {
+          buildings: buildingOptimizationScenarios.map((scenario) => ({
+            buildingId: scenario.buildingId,
+            buildingName: scenario.buildingName,
+            request: scenario.request,
+          })),
+        })
+        if (cancelled) return
+        setOptimizationByBuildingId(
+          Object.fromEntries(result.results.map((item) => [item.buildingId, item.optimization])),
+        )
+        setOptimizationError('')
+      } catch (error) {
+        if (cancelled) return
+        setOptimizationError(error instanceof Error ? error.message : 'Failed to optimize building strategies')
+      } finally {
+        if (!cancelled) setOptimizationBusy(false)
+      }
+    }, 260)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [buildingOptimizationScenarios, session])
+
+  const optimizationSummary = useMemo(() => {
+    const optimizations = buildings
+      .map((building) => optimizationByBuildingId[building.id])
+      .filter((item): item is SolarStorageOptimizationResponse => Boolean(item))
+    return {
+      optimizedBuildings: optimizations.length,
+      solarFirst: optimizations.filter((item) => item.dispatch.solarToLoadKw >= item.dispatch.batteryToLoadKw && item.dispatch.solarToLoadKw >= item.dispatch.gridToLoadKw && item.dispatch.solarToLoadKw > 0).length,
+      batterySupport: optimizations.filter((item) => item.dispatch.batteryToLoadKw > 0).length,
+      gridHeavy: optimizations.filter((item) => item.dispatch.gridSharePercent >= 25).length,
+      reserveMode: optimizations.filter((item) => item.signals.cloudyTomorrow || item.signals.peakTariff).length,
+    }
+  }, [buildings, optimizationByBuildingId])
+
   const stats = useMemo(() => ({
     claimed: buildings.filter((b) => b.claimedByCurrentUser).length,
     blue: buildings.filter((b) => b.status === 'unclaimed').length,
@@ -424,8 +561,9 @@ function App() {
             void dispatchSensorIncidentNotification({
               severity: 'yellow',
               sensorId: sensor.sensorId,
-              hardwareId: building.hardwareId,
-              relayNumber: sensor.sensorIndex,
+              hardwareId: sensor.controlHardwareId,
+              deviceId: sensor.controlDeviceId,
+              relayNumber: sensor.controlRelayNumber,
               title: `${building.name} / ${sensor.name} warning`,
               message: `${sensor.name} moved into orange status. The AI is warning about ${sensorModel ? modelLabel(sensorModel.label).replace('AI ', '').toLowerCase() : 'node instability'}, and the user can turn the node off if needed.`,
               buildingName: building.name,
@@ -456,11 +594,19 @@ function App() {
     }
   }, [buildings, modelInsights, nitwReference, selectedBuildingId, session, showBuildingModal])
 
-  async function loadDashboard(token: string, runSupervision: boolean) {
+  async function loadDashboard(
+    token: string,
+    runSupervision: boolean,
+    options?: { preferredBuildingId?: string; nitwOverride?: NitwReference },
+  ) {
     setPageBusy(true)
     setPageError('')
     try {
-      const [inventoryData, claimedData, nitwData] = await Promise.all([fetchInventory(token), fetchClaimedDevices(token), fetchNitwReference(token)])
+      const [inventoryData, claimedData, nitwData] = await Promise.all([
+        fetchInventory(token),
+        fetchClaimedDevices(token),
+        options?.nitwOverride ? Promise.resolve(options.nitwOverride) : fetchNitwReference(token),
+      ])
       const seededAt = simulationUpdatedAt || new Date().toISOString()
       const nextSeededReadings = seedSimulatedReadings(claimedData, nitwData, liveReadingsRef.current)
       const nextSensorHistory = seedSensorHistory(nitwData, nextSeededReadings, sensorHistoryRef.current, seededAt)
@@ -472,7 +618,7 @@ function App() {
       setSimulatedReadings(nextSeededReadings)
       setSensorHistory(nextSensorHistory)
       setSimulationUpdatedAt(seededAt)
-      setSelectedBuildingId((current) => current || normalizedBuildings(nitwData)[0]?.id || '')
+      setSelectedBuildingId((current) => options?.preferredBuildingId || current || normalizedBuildings(nitwData)[0]?.id || '')
       if (!runSupervision) {
         setCompareByElementId({})
         setSupervised(false)
@@ -569,8 +715,8 @@ function App() {
     try {
       const { buildingId, networkPayload } = buildNetworkWithDraftBuilding(nitwReference, draftBuilding)
       setSelectedBuildingId(buildingId)
-      await syncNetwork(session.token, networkPayload)
-      await loadDashboard(session.token, supervised)
+      const bundle = await syncNetwork(session.token, networkPayload)
+      await loadDashboard(session.token, supervised, { preferredBuildingId: buildingId, nitwOverride: bundle.payload })
       setSelectedBuildingId(buildingId)
       setShowBuildingModal(true)
       setAddBuildingMode(false)
@@ -604,8 +750,8 @@ function App() {
     setSaveSensorBusy(true)
     setSaveSensorError('')
     try {
-      await syncNetwork(session.token, buildNetworkWithAddedSensor(nitwReference, selectedBuilding, draftSensor))
-      await loadDashboard(session.token, supervised)
+      const bundle = await syncNetwork(session.token, buildNetworkWithAddedSensor(nitwReference, selectedBuilding, draftSensor))
+      await loadDashboard(session.token, supervised, { preferredBuildingId: selectedBuilding.id, nitwOverride: bundle.payload })
       setSelectedBuildingId(selectedBuilding.id)
       setShowBuildingModal(true)
       setAddSensorMode(false)
@@ -642,8 +788,9 @@ function App() {
       await controlSensor(session.token, {
         sensorId: sensor.sensorId,
         targetState: nextIsActive ? 'on' : 'off',
-        hardwareId: selectedBuilding.hardwareId,
-        relayNumber: sensor.sensorIndex,
+        hardwareId: sensor.controlHardwareId,
+        deviceId: sensor.controlDeviceId ?? undefined,
+        relayNumber: sensor.controlRelayNumber,
       })
       await loadDashboard(session.token, supervised)
       if (options?.restoreBuildingId) setSelectedBuildingId(options.restoreBuildingId)
@@ -740,6 +887,7 @@ function App() {
     severity,
     sensorId,
     hardwareId,
+    deviceId,
     relayNumber,
     title,
     message,
@@ -750,6 +898,7 @@ function App() {
     severity: 'yellow' | 'red'
     sensorId: string
     hardwareId: string
+    deviceId: string | null
     relayNumber: number
     title: string
     message: string
@@ -765,6 +914,7 @@ function App() {
         title,
         message,
         hardwareId,
+        deviceId: deviceId ?? undefined,
         relayNumber,
         buildingName,
         sensorName,
@@ -791,8 +941,9 @@ function App() {
       await dispatchSensorIncidentNotification({
         severity: 'red',
         sensorId: sensor.sensorId,
-        hardwareId: building.hardwareId,
-        relayNumber: sensor.sensorIndex,
+        hardwareId: sensor.controlHardwareId,
+        deviceId: sensor.controlDeviceId,
+        relayNumber: sensor.controlRelayNumber,
         title: `${building.name} / ${sensor.name} auto shutdown`,
         message: `${sensor.name} stayed in red status for ${persistedSeconds}s, so the system turned it off automatically and notified the user.`,
         buildingName: building.name,
@@ -810,8 +961,9 @@ function App() {
       await dispatchSensorIncidentNotification({
         severity: 'yellow',
         sensorId: sensor.sensorId,
-        hardwareId: building.hardwareId,
-        relayNumber: sensor.sensorIndex,
+        hardwareId: sensor.controlHardwareId,
+        deviceId: sensor.controlDeviceId,
+        relayNumber: sensor.controlRelayNumber,
         title: `${building.name} / ${sensor.name} manual shutdown required`,
         message: `${sensor.name} stayed in red status for ${persistedSeconds}s, but automatic turn off failed. Use the email buttons to keep it as is or turn it off remotely.`,
         buildingName: building.name,
@@ -913,18 +1065,27 @@ function App() {
                 <Tooltip direction="top" offset={[0, -8]}>{building.name}</Tooltip>
                 <Popup>
                   <div className="popup-card popup-card--wide">
+                    {(() => {
+                      const optimization = optimizationByBuildingId[building.id]
+                      return (
+                        <>
                     <strong>{building.name}</strong>
                     <span>{building.hardwareId}</span>
                     <span>Bus: {building.busId}</span>
                     <span>Sensors inside: {building.sensorCount}</span>
                     <span>Expected aggregate: {building.expectedMw.toFixed(2)} MW</span>
                     <span>Current aggregate: {building.currentMw.toFixed(2)} MW</span>
+                    <span>Optimizer: {optimization ? `${optimization.dispatch.solarToLoadKw.toFixed(0)} solar / ${optimization.dispatch.batteryToLoadKw.toFixed(0)} battery / ${optimization.dispatch.gridToLoadKw.toFixed(0)} grid kW` : 'Calculating strategy...'}</span>
                     <span>Orange sensors: {countSensorsByStatus(building.sensors, 'watch')}</span>
                     <span>Red sensors: {countSensorsByStatus(building.sensors, 'critical')}</span>
                     <span>AI high-risk sensors: {modelInsights.buildings[building.id]?.highRiskSensorCount ?? 0}</span>
+                    {optimization ? <span>Reserve target: {optimization.battery.reserveTargetSocPercent.toFixed(0)}% | Grid share: {optimization.dispatch.gridSharePercent.toFixed(0)}%</span> : null}
                     <span className={`map-badge map-badge--${building.status}`}>{statusColorLabel(building.status)} / {statusLabel(building.status)}</span>
                     <button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(building.id)} type="button">Expand building</button>
                     {renderClaimBox(building)}
+                        </>
+                      )
+                    })()}
                   </div>
                 </Popup>
               </CircleMarker>
@@ -966,6 +1127,84 @@ function App() {
             <div className="metric"><span>Last sensor tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
           </article>
 
+          <article className="panel panel--optimizer">
+            <div className="panel-heading">
+              <div>
+                <p className="kicker">Core Judging Point</p>
+                <h2>Real-time solar &amp; storage optimization</h2>
+              </div>
+              <span className={`status-badge ${optimizationBusy ? 'status-watch' : 'status-good'}`}>
+                {optimizationBusy ? 'Refreshing' : `${optimizationSummary.optimizedBuildings} buildings`}
+              </span>
+            </div>
+            <p className="legend-copy">
+              Every building now gets an automatic dispatch plan from live frontend simulation data plus fake solar and battery telemetry. It refreshes whenever the building load updates.
+            </p>
+            {optimizationError ? <div className="form-error">{optimizationError}</div> : null}
+            <div className="optimizer-metrics">
+              <div className="metric"><span>Solar-first buildings</span><strong>{optimizationSummary.solarFirst}</strong></div>
+              <div className="metric"><span>Battery assisting</span><strong>{optimizationSummary.batterySupport}</strong></div>
+              <div className="metric"><span>Grid-heavy buildings</span><strong>{optimizationSummary.gridHeavy}</strong></div>
+              <div className="metric"><span>Reserve-protected</span><strong>{optimizationSummary.reserveMode}</strong></div>
+            </div>
+            {selectedBuildingOptimization ? (
+              <>
+                <div className="optimizer-summary">
+                  <strong>{selectedBuildingOptimization.summary}</strong>
+                  <span>{selectedBuilding ? `${selectedBuilding.name} is being optimized automatically from live building demand.` : 'Select a building to inspect its automatic strategy.'}</span>
+                </div>
+                <div className="optimizer-metrics">
+                  <div className="metric"><span>Solar to load</span><strong>{selectedBuildingOptimization.dispatch.solarToLoadKw.toFixed(1)} kW</strong></div>
+                  <div className="metric"><span>Solar to battery</span><strong>{selectedBuildingOptimization.dispatch.solarToBatteryKw.toFixed(1)} kW</strong></div>
+                  <div className="metric"><span>Battery to load</span><strong>{selectedBuildingOptimization.dispatch.batteryToLoadKw.toFixed(1)} kW</strong></div>
+                  <div className="metric"><span>Grid to load</span><strong>{selectedBuildingOptimization.dispatch.gridToLoadKw.toFixed(1)} kW</strong></div>
+                  <div className="metric"><span>Reserve target</span><strong>{selectedBuildingOptimization.battery.reserveTargetSocPercent.toFixed(0)}%</strong></div>
+                  <div className="metric"><span>Projected SOC</span><strong>{selectedBuildingOptimization.battery.projectedSocPercent.toFixed(0)}%</strong></div>
+                </div>
+                <div className="optimizer-sections">
+                  <div className="optimizer-section">
+                    <strong>Current window</strong>
+                    <ul>
+                      {selectedBuildingOptimization.strategy.current.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div className="optimizer-section">
+                    <strong>Daytime rule</strong>
+                    <ul>
+                      {selectedBuildingOptimization.strategy.daytime.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div className="optimizer-section">
+                    <strong>Night rule</strong>
+                    <ul>
+                      {selectedBuildingOptimization.strategy.nighttime.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                </div>
+                <div className="notification-list">
+                  {selectedBuildingOptimization.recommendations.map((item) => (
+                    <article className={`notification-card notification-card--${priorityTone(item.priority)}`} key={`${item.priority}-${item.title}`}>
+                      <div className="notification-card__header">
+                        <strong>{item.title}</strong>
+                        <span>{item.priority.toUpperCase()}</span>
+                      </div>
+                      <p>{item.detail}</p>
+                    </article>
+                  ))}
+                </div>
+                <div className="optimizer-footer">
+                  <span>Weather risk: {selectedBuildingOptimization.signals.weatherRisk}</span>
+                  <span>Tariff band: {selectedBuildingOptimization.signals.tariffBand}</span>
+                  <span>{optimizationBusy ? 'Refreshing strategy...' : `Grid share: ${selectedBuildingOptimization.dispatch.gridSharePercent.toFixed(0)}%`}</span>
+                </div>
+              </>
+            ) : (
+              <div className="optimizer-summary">
+                <strong>{optimizationBusy ? 'Calculating dispatch strategy...' : 'Waiting for optimization result.'}</strong>
+              </div>
+            )}
+          </article>
+
           <article className="panel panel--legend">
             <div className="panel-heading"><div><p className="kicker">Node Legend</p><h2>Live color logic</h2></div></div>
             <div className="legend-grid">
@@ -1000,7 +1239,11 @@ function App() {
             <div className="building-list">
               {buildings.map((building) => (
                 <button className="building-row" key={building.id} onClick={() => setSelectedBuildingId(building.id)} type="button">
-                  <div><strong>{building.name}</strong><span>{building.sensors.filter((sensor) => sensor.isActive).length}/{building.sensorCount} active sensors | {building.expectedMw.toFixed(2)} MW expected</span></div>
+                  <div>
+                    <strong>{building.name}</strong>
+                    <span>{building.sensors.filter((sensor) => sensor.isActive).length}/{building.sensorCount} active sensors | {building.expectedMw.toFixed(2)} MW expected</span>
+                    <span>{formatBuildingOptimizationLine(optimizationByBuildingId[building.id], optimizationBusy)}</span>
+                  </div>
                   <span className={`mini-badge status-${building.status}`}>{statusLabel(building.status)}</span>
                 </button>
               ))}
@@ -1019,10 +1262,22 @@ function App() {
                 <div><span>Sensors active</span><strong>{selectedBuildingActiveSensorCount} / {selectedBuilding.sensorCount}</strong></div>
                 <div><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
                 <div><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
+                <div><span>Optimizer dispatch</span><strong>{selectedBuildingOptimization ? `${selectedBuildingOptimization.dispatch.solarToLoadKw.toFixed(0)} / ${selectedBuildingOptimization.dispatch.batteryToLoadKw.toFixed(0)} / ${selectedBuildingOptimization.dispatch.gridToLoadKw.toFixed(0)} kW` : '--'}</strong></div>
+                <div><span>Battery reserve target</span><strong>{selectedBuildingOptimization ? `${selectedBuildingOptimization.battery.reserveTargetSocPercent.toFixed(0)}%` : '--'}</strong></div>
                 <div><span>AI top label</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : selectedBuildingHasActiveSensors ? 'Waiting' : 'Turned Off'}</strong></div>
                 <div><span>AI risk score</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? formatPercent(selectedBuildingModel.anomalyScore) : '--'}</strong></div>
                 <div><span>Forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
               </div>
+              {selectedBuildingOptimization ? (
+                <div className="optimizer-sections">
+                  <div className="optimizer-section">
+                    <strong>Automatic strategy</strong>
+                    <ul>
+                      {selectedBuildingOptimization.strategy.current.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              ) : null}
               <div className="node-preview-list">
                 {selectedBuilding.sensors.slice(0, 5).map((sensor) => {
                   const sensorModel = modelInsights.sensors[sensor.sensorId]
@@ -1077,15 +1332,18 @@ function App() {
               </div>
             </div>
 
-            <div className="building-modal__summary">
-              <div className="metric"><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
-              <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
-              <div className="metric"><span>Orange sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'watch')}</strong></div>
-              <div className="metric"><span>Red sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'critical')}</strong></div>
-              <div className="metric"><span>Active sensors</span><strong>{selectedBuildingActiveSensorCount}</strong></div>
-              <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingHasActiveSensors ? selectedBuildingModel?.highRiskSensorCount ?? 0 : 0}</strong></div>
-              <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
-            </div>
+              <div className="building-modal__summary">
+                <div className="metric"><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
+                <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
+                <div className="metric"><span>Solar dispatch</span><strong>{selectedBuildingOptimization ? `${selectedBuildingOptimization.dispatch.solarToLoadKw.toFixed(0)} kW` : '--'}</strong></div>
+                <div className="metric"><span>Battery dispatch</span><strong>{selectedBuildingOptimization ? `${selectedBuildingOptimization.dispatch.batteryToLoadKw.toFixed(0)} kW` : '--'}</strong></div>
+                <div className="metric"><span>Orange sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'watch')}</strong></div>
+                <div className="metric"><span>Red sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'critical')}</strong></div>
+                <div className="metric"><span>Active sensors</span><strong>{selectedBuildingActiveSensorCount}</strong></div>
+                <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingHasActiveSensors ? selectedBuildingModel?.highRiskSensorCount ?? 0 : 0}</strong></div>
+                <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
+                <div className="metric"><span>Grid share</span><strong>{selectedBuildingOptimization ? `${selectedBuildingOptimization.dispatch.gridSharePercent.toFixed(0)}%` : '--'}</strong></div>
+              </div>
 
             <div className="building-modal__toolbar"><button className="ghost-button ghost-button--accent" onClick={beginAddSensorMode} type="button">Add node</button></div>
             {sensorToggleError ? <div className="form-error">{sensorToggleError}</div> : null}
@@ -1713,6 +1971,82 @@ function buildUniqueId(baseId: string, existingIds: string[]) {
   return `${baseId}_${counter}`
 }
 
+function createRealtimeOptimizationRequest(
+  building: CampusBuilding,
+  simulationUpdatedAt: string,
+  buildingModel: BuildingModelInsight | undefined,
+): SolarStorageOptimizationRequest {
+  const referenceTime = simulationUpdatedAt ? new Date(simulationUpdatedAt) : new Date()
+  const hour = referenceTime.getHours() + (referenceTime.getMinutes() / 60)
+  const isDay = hour >= 6 && hour < 18
+  const checksum = stableNumber(building.id)
+  const expectedLoadKw = Math.max(building.expectedMw * 1_000, 25)
+  const currentLoadKw = Math.max(
+    building.currentMw * 1_000,
+    expectedLoadKw * 0.58,
+    building.sensors.filter((sensor) => sensor.isActive).length * 7,
+  )
+  const solarShape = isDay ? Math.sin((((hour - 6) / 12)) * Math.PI) : 0
+  const cloudCover = clamp(
+    28
+      + (checksum % 36)
+      + (buildingModel?.anomalyScore ?? 0) * 18
+      + (building.status === 'watch' ? 6 : building.status === 'critical' ? 10 : 0),
+    12,
+    96,
+  )
+  const solarPotentialKw = Math.max(expectedLoadKw * (0.52 + ((checksum % 24) / 100)) + 18, 35)
+  const solarGenerationKw = Math.round(
+    isDay
+      ? Math.max(solarPotentialKw * solarShape * (1 - (cloudCover / 100) * 0.74), 0)
+      : 0,
+  )
+  const batteryCapacityKwh = Math.round(Math.max(expectedLoadKw * (2.15 + ((checksum % 44) / 100)), 140))
+  const daySoc = 48 + solarShape * 24 + stableNoise(`${building.id}-soc-day`, -6, 8)
+  const nightProgress = hour >= 18 ? (hour - 18) / 12 : (hour + 6) / 12
+  const nightSoc = 68 - nightProgress * 26 + stableNoise(`${building.id}-soc-night`, -5, 6)
+  const batterySocPercent = Math.round(clamp((isDay ? daySoc : nightSoc) - cloudCover * 0.05, 18, 96))
+  const importTariffRsPerKwh = timeOfUseTariff(hour)
+  const minReserveSocPercent = buildingModel && buildingModel.anomalyScore >= 0.55 ? 28 : 20
+  const batteryMaxChargeKw = Math.round(Math.max(batteryCapacityKwh * 0.28, expectedLoadKw * 0.5, 40))
+  const batteryMaxDischargeKw = Math.round(Math.max(batteryCapacityKwh * 0.32, expectedLoadKw * 0.62, 55))
+  return {
+    currentPeriod: isDay ? 'day' : 'night',
+    loadKw: Math.round(currentLoadKw),
+    solarGenerationKw,
+    batteryCapacityKwh,
+    batterySocPercent,
+    batteryMaxChargeKw,
+    batteryMaxDischargeKw,
+    importTariffRsPerKwh,
+    exportTariffRsPerKwh: 2.5,
+    forecastCloudCoverPercent: Math.round(cloudCover),
+    minReserveSocPercent,
+    dispatchHorizonHours: 1,
+    peakTariffThresholdRsPerKwh: 8,
+  }
+}
+
+function timeOfUseTariff(hour: number) {
+  if ((hour >= 18 && hour < 22) || (hour >= 9 && hour < 11)) return 10.8
+  if ((hour >= 6 && hour < 9) || (hour >= 22 && hour < 24)) return 8.4
+  return 6.1
+}
+
+function formatBuildingOptimizationLine(
+  optimization: SolarStorageOptimizationResponse | undefined,
+  optimizationBusy: boolean,
+) {
+  if (!optimization) return optimizationBusy ? 'Optimizer refreshing from live frontend data...' : 'Waiting for optimizer...'
+  return `Auto: ${optimization.dispatch.solarToLoadKw.toFixed(0)} solar | ${optimization.dispatch.batteryToLoadKw.toFixed(0)} battery | ${optimization.dispatch.gridToLoadKw.toFixed(0)} grid kW`
+}
+
+function priorityTone(priority: 'high' | 'medium' | 'low') {
+  if (priority === 'high') return 'critical'
+  if (priority === 'medium') return 'warning'
+  return 'info'
+}
+
 function formatMw(value: number) { return `${value.toFixed(4)} MW` }
 function formatSignedMw(value: number) { return `${value > 0 ? '+' : ''}${value.toFixed(4)} MW` }
 function hardwareIdForBuildingId(buildingId: string | undefined) { return buildingId ? `BLDG-${buildingId.replaceAll('_', '-').toUpperCase()}` : '' }
@@ -1741,6 +2075,11 @@ function numberOrNull(value: unknown) {
 
 function stableNumber(value: string) {
   return Array.from(value).reduce((total, character, index) => total + character.charCodeAt(0) * (index + 1), 0)
+}
+
+function stableNoise(key: string, min: number, max: number) {
+  const normalized = (stableNumber(key) % 1000) / 999
+  return min + (max - min) * normalized
 }
 
 export default App

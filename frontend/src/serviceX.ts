@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 type AuthPayload = {
   access_token: string
@@ -71,6 +71,21 @@ export type NitwReference = {
   }>
   external_grids?: Array<Record<string, unknown>>
   lines?: Array<Record<string, unknown>>
+  static_generators?: Array<{
+    id: string
+    name?: string
+    bus_id: string
+    p_mw?: number
+    q_mvar?: number
+  }>
+  storage?: Array<{
+    id: string
+    name?: string
+    bus_id: string
+    p_mw?: number
+    soc_percent?: number
+    max_e_mwh?: number
+  }>
   loads: Array<{
     id: string
     name: string
@@ -234,6 +249,81 @@ export type TrainingReplayWindow = {
   }>
 }
 
+export type SolarStorageOptimizationRequest = {
+  currentPeriod: 'day' | 'night'
+  loadKw: number
+  solarGenerationKw: number
+  batteryCapacityKwh: number
+  batterySocPercent: number
+  batteryMaxChargeKw: number
+  batteryMaxDischargeKw: number
+  importTariffRsPerKwh: number
+  exportTariffRsPerKwh: number
+  forecastCloudCoverPercent: number
+  minReserveSocPercent: number
+  dispatchHorizonHours: number
+  peakTariffThresholdRsPerKwh: number
+}
+
+export type SolarStorageOptimizationBatchRequest = {
+  buildings: Array<{
+    buildingId: string
+    buildingName?: string
+    request: SolarStorageOptimizationRequest
+  }>
+}
+
+export type SolarStorageOptimizationResponse = {
+  status: string
+  summary: string
+  dispatch: {
+    loadKw: number
+    solarToLoadKw: number
+    solarToBatteryKw: number
+    solarToGridKw: number
+    batteryToLoadKw: number
+    gridToLoadKw: number
+    gridSharePercent: number
+  }
+  battery: {
+    currentSocPercent: number
+    reserveTargetSocPercent: number
+    projectedSocPercent: number
+    storedEnergyKwh: number
+    reserveEnergyKwh: number
+    availableDischargeKw: number
+    availableChargeKw: number
+  }
+  signals: {
+    currentPeriod: 'day' | 'night'
+    cloudyTomorrow: boolean
+    peakTariff: boolean
+    weatherRisk: string
+    tariffBand: string
+    forecastCloudCoverPercent: number
+  }
+  strategy: {
+    current: string[]
+    daytime: string[]
+    nighttime: string[]
+  }
+  recommendations: Array<{
+    priority: 'high' | 'medium' | 'low'
+    title: string
+    detail: string
+  }>
+}
+
+export type SolarStorageOptimizationBatchResponse = {
+  status: string
+  optimizedAt: string
+  results: Array<{
+    buildingId: string
+    buildingName?: string
+    optimization: SolarStorageOptimizationResponse
+  }>
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Content-Type') && init?.body) {
@@ -371,6 +461,34 @@ export function fetchTrainingReplayWindow(
   if (typeof windowSize === 'number') query.set('window_size', String(windowSize))
   const suffix = query.size ? `?${query.toString()}` : ''
   return apiFetch<TrainingReplayWindow>(`/model/training-replay-window${suffix}`, undefined, token)
+}
+
+export function optimizeSolarStorage(
+  token: string,
+  payload: SolarStorageOptimizationRequest,
+): Promise<SolarStorageOptimizationResponse> {
+  return apiFetch<SolarStorageOptimizationResponse>(
+    '/model/solar-storage-optimization',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  )
+}
+
+export function optimizeSolarStorageBatch(
+  token: string,
+  payload: SolarStorageOptimizationBatchRequest,
+): Promise<SolarStorageOptimizationBatchResponse> {
+  return apiFetch<SolarStorageOptimizationBatchResponse>(
+    '/model/solar-storage-optimization/batch',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  )
 }
 
 export function syncNetwork(token: string, networkPayload: NitwReference): Promise<NetworkBundle> {

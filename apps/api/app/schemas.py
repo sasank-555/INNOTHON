@@ -127,6 +127,32 @@ class ModelGraphAnalyzeRequest(BaseModel):
     snapshot: dict[str, Any]
 
 
+class SolarStorageOptimizationRequest(BaseModel):
+    currentPeriod: Literal["day", "night"]
+    loadKw: float = Field(ge=0)
+    solarGenerationKw: float = Field(ge=0)
+    batteryCapacityKwh: float = Field(gt=0)
+    batterySocPercent: float = Field(ge=0, le=100)
+    batteryMaxChargeKw: float = Field(ge=0)
+    batteryMaxDischargeKw: float = Field(ge=0)
+    importTariffRsPerKwh: float = Field(ge=0)
+    exportTariffRsPerKwh: float = Field(default=0, ge=0)
+    forecastCloudCoverPercent: float = Field(ge=0, le=100)
+    minReserveSocPercent: float = Field(default=20, ge=0, le=100)
+    dispatchHorizonHours: float = Field(default=1, gt=0, le=24)
+    peakTariffThresholdRsPerKwh: float = Field(default=8, ge=0)
+
+
+class SolarStorageOptimizationBatchItem(BaseModel):
+    buildingId: str
+    buildingName: str | None = None
+    request: SolarStorageOptimizationRequest
+
+
+class SolarStorageOptimizationBatchRequest(BaseModel):
+    buildings: list[SolarStorageOptimizationBatchItem] = Field(min_length=1)
+
+
 class ModelServiceResponse(BaseModel):
     status: str
     network_payload: dict[str, Any] | None = None

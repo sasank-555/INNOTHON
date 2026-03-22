@@ -20,6 +20,7 @@ from app.database import (
     users_collection,
     utc_now,
 )
+from app.schemas import DeviceCommandResponse
 
 from .email_config import notification_config
 from .service import EmailNotificationResult, NotificationEmailSettings, NotificationEvent, send_notifications
@@ -232,6 +233,17 @@ def apply_sensor_control_action(
         target_state,
         reason=reason,
     )
+    _publish_command_immediately(
+        hardware_id=str(device.get("hardware_id") or ""),
+        command=DeviceCommandResponse(
+            commandId=command_id,
+            type="relay.set",
+            relayNumber=relay_number,
+            targetState=target_state,
+            reason=reason,
+            status="pending",
+        ),
+    )
     return NotificationActionResult(
         action="on" if target_state == "on" else "off",
         command_id=command_id,
@@ -355,6 +367,17 @@ def _set_sensor_active_state(device: dict[str, Any], sensor_id: str, *, next_is_
     load_row["is_active"] = next_is_active
     upsert_network_component(network_name, "loads", load_row)
     return load_id
+
+
+def _publish_command_immediately(*, hardware_id: str, command: DeviceCommandResponse) -> None:
+    if not hardware_id:
+        return
+    try:
+        from app.mqtt_service import mqtt_bridge
+
+        mqtt_bridge.publish_commands(hardware_id, [command])
+    except Exception:
+        return
 
 
 def _queue_command_if_needed(
