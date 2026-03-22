@@ -27,6 +27,11 @@ export type DeviceRecord = {
     sensorId: string
     sensorType: string
     unit: string
+    measurement?: string
+    loadId?: string
+    loadName?: string
+    buildingId?: string
+    busId?: string
   }>
   deviceAuthToken?: string
   latestReadings: Array<{

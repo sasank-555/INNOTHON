@@ -36,6 +36,11 @@ class SensorManifestItem(BaseModel):
     sensorId: str
     sensorType: str
     unit: str
+    measurement: str | None = None
+    loadId: str | None = None
+    loadName: str | None = None
+    buildingId: str | None = None
+    busId: str | None = None
 
 
 class DeviceSummary(BaseModel):
