@@ -141,6 +141,27 @@ class ModelServiceResponse(BaseModel):
     alerts_summary: dict[str, Any] | None = None
 
 
+class NotificationDispatchRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=140)
+    message: str = Field(min_length=3, max_length=2000)
+    severity: Literal["info", "low", "medium", "high", "critical"] = "info"
+    buildingName: str | None = Field(default=None, max_length=140)
+    sensorName: str | None = Field(default=None, max_length=140)
+    networkName: str | None = Field(default=None, max_length=140)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    recipients: list[EmailStr] = Field(default_factory=list)
+
+
+class NotificationDispatchResponse(BaseModel):
+    success: bool
+    sent: bool
+    recipientCount: int
+    highestSeverity: str
+    subject: str | None = None
+    transport: str | None = None
+    detail: str | None = None
+
+
 UserResponse.model_rebuild()
 AuthResponse.model_rebuild()
 ReadingResponse.model_rebuild()

@@ -11,23 +11,25 @@ import {
   type SensorHistoryPoint,
   type SensorModelInsight,
 } from './aiModel'
+import { buildFrontendTelemetryPacket, FRONTEND_SENSOR_INTERVAL_MS } from './sensorSimulation'
 import {
   claimDevice,
   compareNitwNetwork,
+  dispatchNotification,
   fetchClaimedDevices,
   fetchInventory,
   fetchNitwReference,
   loginUser,
-  openLiveReadingsSocket,
   registerUser,
   syncNetwork,
   type DeviceRecord,
   type LiveFeedEvent,
+  type NotificationSeverity,
   type NitwReference,
 } from './serviceX'
 
 type AuthMode = 'login' | 'register'
-type VisualStatus = 'unclaimed' | 'healthy' | 'deviation' | 'inactive'
+type VisualStatus = 'unclaimed' | 'good' | 'watch' | 'critical' | 'offline'
 type SensorReviewDecision = 'normal' | 'anomaly'
 type Session = { token: string; email: string }
 type ComparisonRecord = {
@@ -82,12 +84,19 @@ type LiveNotification = {
   detail: string
   timestamp: string
 }
+type SensorIncidentState = {
+  status: VisualStatus
+  enteredAtMs: number
+  warningSent: boolean
+  shutdownTriggered: boolean
+}
 
 const SESSION_KEY = 'innothon-session'
 const CAMPUS_CENTER: LatLngExpression = [17.98369646253154, 79.53082786635768]
 const PUMP_STATION: LatLngExpression = [17.98369646253154, 79.53082786635768]
 const LIVE_COMPARE_DEBOUNCE_MS = 250
 const SENSOR_HISTORY_LIMIT = 12
+const CRITICAL_AUTOSHUTDOWN_MS = 3_000
 const PUMP_ICON = divIcon({
   className: 'pump-marker',
   html: '<div class="pump-marker__inner"><strong>Main Feed</strong><span>Campus source</span></div>',
@@ -132,6 +141,8 @@ function App() {
   const [sensorToggleError, setSensorToggleError] = useState('')
   const liveReadingsRef = useRef<Record<string, number>>({})
   const sensorHistoryRef = useRef<Record<string, SensorHistoryPoint[]>>({})
+  const simulationTickRef = useRef(0)
+  const sensorIncidentRef = useRef<Record<string, SensorIncidentState>>({})
 
   useEffect(() => {
     if (session) void loadDashboard(session.token, false)
@@ -141,6 +152,7 @@ function App() {
     if (!nitwReference) {
       liveReadingsRef.current = {}
       sensorHistoryRef.current = {}
+      simulationTickRef.current = 0
       setSimulatedReadings({})
       setSensorHistory({})
       setSimulationUpdatedAt('')
@@ -161,9 +173,8 @@ function App() {
     if (!session || !nitwReference) return
 
     let cancelled = false
-    let socket: WebSocket | null = null
-    let reconnectTimeoutId: number | undefined
     let compareTimeoutId: number | undefined
+    let intervalId: number | undefined
 
     const scheduleCompare = () => {
       if (compareTimeoutId) window.clearTimeout(compareTimeoutId)
@@ -176,60 +187,47 @@ function App() {
           )
           if (cancelled) return
           setCompareByElementId(mapComparisonsByElementId(compare.comparisons ?? []))
-          setSupervised(true)
           setPageError('')
         } catch (error) {
           if (cancelled) return
-          setPageError(error instanceof Error ? `Live supervision paused: ${error.message}` : 'Live supervision paused')
+          setPageError(error instanceof Error ? `Live simulation paused: ${error.message}` : 'Live simulation paused')
         }
       }, LIVE_COMPARE_DEBOUNCE_MS)
     }
 
-    const connectLiveFeed = () => {
-      socket = openLiveReadingsSocket(session.token)
-      socket.onopen = () => {
-        if (!cancelled) setPageError('')
+    const emitFrontendPacket = () => {
+      simulationTickRef.current += 1
+      const packet = buildFrontendTelemetryPacket(
+        nitwReference,
+        liveReadingsRef.current,
+        simulationTickRef.current,
+        new Date().toISOString(),
+      )
+      const nextState = applyLiveTelemetryPacket(
+        nitwReference,
+        packet,
+        liveReadingsRef.current,
+        sensorHistoryRef.current,
+      )
+      liveReadingsRef.current = nextState.readings
+      sensorHistoryRef.current = nextState.history
+      if (!cancelled) {
+        setSimulatedReadings(nextState.readings)
+        setSensorHistory(nextState.history)
+        setSimulationUpdatedAt(nextState.updatedAt)
       }
-      socket.onmessage = (event) => {
-        let payload: LiveFeedEvent
-        try {
-          payload = JSON.parse(event.data) as LiveFeedEvent
-        } catch {
-          return
-        }
-        if (payload.type !== 'telemetry_packet') return
-        const nextState = applyLiveTelemetryPacket(
-          nitwReference,
-          payload,
-          liveReadingsRef.current,
-          sensorHistoryRef.current,
-        )
-        liveReadingsRef.current = nextState.readings
-        sensorHistoryRef.current = nextState.history
-        if (!cancelled) {
-          setSimulatedReadings(nextState.readings)
-          setSensorHistory(nextState.history)
-          setSimulationUpdatedAt(nextState.updatedAt)
-        }
-        scheduleCompare()
-      }
-      socket.onclose = () => {
-        if (cancelled) return
-        reconnectTimeoutId = window.setTimeout(() => {
-          connectLiveFeed()
-        }, 1500)
-      }
+      if (supervised) scheduleCompare()
     }
 
-    connectLiveFeed()
+    emitFrontendPacket()
+    intervalId = window.setInterval(emitFrontendPacket, FRONTEND_SENSOR_INTERVAL_MS)
 
     return () => {
       cancelled = true
       if (compareTimeoutId) window.clearTimeout(compareTimeoutId)
-      if (reconnectTimeoutId) window.clearTimeout(reconnectTimeoutId)
-      socket?.close()
+      if (intervalId) window.clearInterval(intervalId)
     }
-  }, [nitwReference, session])
+  }, [nitwReference, session, supervised])
 
   const baseBuildings = useMemo<CampusBuilding[]>(() => {
     if (!nitwReference) return []
@@ -260,13 +258,13 @@ function App() {
             : typeof latest?.value === 'number'
               ? latest.value
               : fakeReadingForLoad(load)
-        const comparison = isActive ? compareByElementId[load.id] : undefined
+        const comparison = isActive && supervised ? compareByElementId[load.id] : undefined
         const reviewDecision = isActive ? reviewBySensorId[load.id] ?? null : null
-        let status: VisualStatus = 'inactive'
+        let status: VisualStatus = 'offline'
         if (isActive) {
-          status = 'unclaimed'
-          if (claimedDevice && supervised) status = isProblemComparisonStatus(comparison?.status ?? null) ? 'deviation' : 'healthy'
-          if (reviewDecision === 'normal') status = 'healthy'
+          status = claimedDevice ? 'good' : 'unclaimed'
+          if (claimedDevice && supervised) status = comparisonVisualStatus(comparison?.status ?? null)
+          if (reviewDecision === 'normal') status = 'good'
         }
         return {
           id: load.id,
@@ -285,13 +283,11 @@ function App() {
         }
       }).sort((a, b) => a.sensorIndex - b.sensorIndex || a.name.localeCompare(b.name))
       const hasActiveSensors = sensors.some((sensor) => sensor.isActive)
-      let buildingStatus: VisualStatus = 'unclaimed'
+      let buildingStatus: VisualStatus = claimedDevice ? 'good' : 'unclaimed'
       if (claimedDevice && !hasActiveSensors) {
-        buildingStatus = 'inactive'
-      } else if (claimedDevice && supervised && sensors.some((sensor) => sensor.status === 'deviation')) {
-        buildingStatus = 'deviation'
+        buildingStatus = 'offline'
       } else if (claimedDevice && supervised) {
-        buildingStatus = 'healthy'
+        buildingStatus = summarizeSensorStatuses(sensors)
       }
       return {
         id: building.id,
@@ -349,8 +345,9 @@ function App() {
   const stats = useMemo(() => ({
     claimed: buildings.filter((b) => b.claimedByCurrentUser).length,
     blue: buildings.filter((b) => b.status === 'unclaimed').length,
-    red: buildings.filter((b) => b.status === 'deviation').length,
-    green: buildings.filter((b) => b.status === 'healthy').length,
+    green: buildings.filter((b) => b.status === 'good').length,
+    orange: buildings.filter((b) => b.status === 'watch').length,
+    red: buildings.filter((b) => b.status === 'critical').length,
     sensors: buildings.reduce((total, b) => total + b.sensorCount, 0),
     activeSensors: buildings.reduce((total, b) => total + b.sensors.filter((sensor) => sensor.isActive).length, 0),
   }), [buildings])
@@ -358,10 +355,10 @@ function App() {
     const alerts = buildings.flatMap((building) => building.sensors.flatMap((sensor) => {
       const sensorModel = modelInsights.sensors[sensor.sensorId]
       const lastPacket = sensorHistory[sensor.sensorId]?.[sensorHistory[sensor.sensorId].length - 1]
-      const shouldNotify = sensor.status === 'deviation' || (sensorModel && sensorModel.label !== 'stable' && sensorModel.anomalyScore >= 0.55)
+      const shouldNotify = sensor.status === 'critical' || sensor.status === 'watch' || (sensorModel && sensorModel.label !== 'stable' && sensorModel.anomalyScore >= 0.55)
       if (!shouldNotify || !sensorModel) return []
       const level: NotificationLevel =
-        sensorModel.label === 'outage' || sensorModel.label === 'overload' || sensor.status === 'deviation'
+        sensor.status === 'critical' || sensorModel.label === 'outage' || sensorModel.label === 'overload'
           ? 'critical'
           : 'warning'
       return [{
@@ -383,14 +380,78 @@ function App() {
       ? [{
         id: 'live-stream-ok',
         level: 'info',
-        title: stats.activeSensors ? 'All sensor nodes streaming' : 'All sensors are turned off',
+        title: stats.activeSensors ? 'All sensor nodes simulating' : 'All sensors are turned off',
         detail: stats.activeSensors
-          ? `${stats.activeSensors} active nodes reported through the live sensor stream with no active anomalies.`
-          : 'No active sensors are currently streaming.',
+          ? `${stats.activeSensors} active nodes are being simulated locally with no AI issues above the watch threshold.`
+          : 'No active sensors are currently running in the local simulator.',
         timestamp: simulationUpdatedAt,
       }]
       : []
   }, [buildings, modelInsights, sensorHistory, simulationUpdatedAt, stats.activeSensors])
+
+  useEffect(() => {
+    if (!session) {
+      sensorIncidentRef.current = {}
+      return
+    }
+
+    const now = Date.now()
+    const activeIncidentKeys = new Set<string>()
+
+    for (const building of buildings) {
+      if (!building.claimedByCurrentUser) continue
+
+      for (const sensor of building.sensors) {
+        activeIncidentKeys.add(sensor.id)
+
+        if (!sensor.isActive || sensor.status === 'good' || sensor.status === 'unclaimed' || sensor.status === 'offline') {
+          delete sensorIncidentRef.current[sensor.id]
+          continue
+        }
+
+        const sensorModel = modelInsights.sensors[sensor.sensorId]
+        const currentIncident = sensorIncidentRef.current[sensor.id]
+
+        if (!currentIncident || currentIncident.status !== sensor.status) {
+          sensorIncidentRef.current[sensor.id] = {
+            status: sensor.status,
+            enteredAtMs: now,
+            warningSent: sensor.status === 'watch',
+            shutdownTriggered: false,
+          }
+
+          if (sensor.status === 'watch') {
+            void dispatchSensorIncidentNotification({
+              severity: 'medium',
+              title: `${building.name} / ${sensor.name} warning`,
+              message: `${sensor.name} moved into orange status. The AI is warning about ${sensorModel ? modelLabel(sensorModel.label).replace('AI ', '').toLowerCase() : 'node instability'}, and the user can turn the node off if needed.`,
+              buildingName: building.name,
+              sensorName: sensor.name,
+              metadata: {
+                nodeStatus: sensor.status,
+                aiLabel: sensorModel?.label ?? 'stable',
+                anomalyScore: sensorModel?.anomalyScore ?? null,
+                suggestedAction: 'manual_turn_off_available',
+                sensorId: sensor.sensorId,
+              },
+            })
+          }
+          continue
+        }
+
+        if (sensor.status === 'critical' && !currentIncident.shutdownTriggered && now - currentIncident.enteredAtMs >= CRITICAL_AUTOSHUTDOWN_MS) {
+          currentIncident.shutdownTriggered = true
+          void autoShutdownSensor(building, sensor, sensorModel, Math.round((now - currentIncident.enteredAtMs) / 1000))
+        }
+      }
+    }
+
+    for (const sensorId of Object.keys(sensorIncidentRef.current)) {
+      if (!activeIncidentKeys.has(sensorId)) {
+        delete sensorIncidentRef.current[sensorId]
+      }
+    }
+  }, [buildings, modelInsights, nitwReference, selectedBuildingId, session, showBuildingModal])
 
   async function loadDashboard(token: string, runSupervision: boolean) {
     setPageBusy(true)
@@ -480,7 +541,7 @@ function App() {
       setCompareByElementId(await superviseBuildings(session.token, claimedData, nitwData, nextSeededReadings))
       setSupervised(true)
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Supervision failed')
+      setPageError(error instanceof Error ? error.message : 'Simulation failed')
     } finally {
       setSuperviseBusy(false)
     }
@@ -554,16 +615,34 @@ function App() {
   }
 
   async function handleSetSensorActive(sensorId: string, nextIsActive: boolean) {
-    if (!session || !nitwReference || !selectedBuilding) return
+    if (!selectedBuilding) return
+    try {
+      await updateSensorActivity(sensorId, nextIsActive, {
+        restoreBuildingId: selectedBuilding.id,
+        reopenModal: showBuildingModal,
+        failureLabel: `Failed to turn ${nextIsActive ? 'on' : 'off'} sensor`,
+      })
+    } catch {
+      // The shared helper already surfaces the error in UI state.
+    }
+  }
+
+  async function updateSensorActivity(
+    sensorId: string,
+    nextIsActive: boolean,
+    options?: { restoreBuildingId?: string; reopenModal?: boolean; failureLabel?: string },
+  ) {
+    if (!session || !nitwReference) return
     setSensorToggleBusyId(sensorId)
     setSensorToggleError('')
     try {
       await syncNetwork(session.token, buildNetworkWithSensorActivity(nitwReference, sensorId, nextIsActive))
       await loadDashboard(session.token, supervised)
-      setSelectedBuildingId(selectedBuilding.id)
-      setShowBuildingModal(true)
+      if (options?.restoreBuildingId) setSelectedBuildingId(options.restoreBuildingId)
+      if (options?.reopenModal) setShowBuildingModal(true)
     } catch (error) {
-      setSensorToggleError(error instanceof Error ? error.message : `Failed to turn ${nextIsActive ? 'on' : 'off'} sensor`)
+      setSensorToggleError(error instanceof Error ? error.message : options?.failureLabel ?? `Failed to turn ${nextIsActive ? 'on' : 'off'} sensor`)
+      throw error
     } finally {
       setSensorToggleBusyId(null)
     }
@@ -616,11 +695,19 @@ function App() {
     setDraftBuilding(null)
     liveReadingsRef.current = {}
     sensorHistoryRef.current = {}
+    simulationTickRef.current = 0
+    sensorIncidentRef.current = {}
   }
 
   function renderClaimBox(building: CampusBuilding) {
     if (building.claimedByCurrentUser) {
-      return <div className="claim-success">{supervised ? 'Claimed by you. Live sensor stream and AI supervision are active.' : 'Claimed by you. Live sensor stream is starting.'}</div>
+      return (
+        <div className="claim-success">
+          {supervised
+            ? 'Claimed by you. Frontend sensor packets are running and the supervision simulation is active.'
+            : 'Claimed by you. Frontend sensor packets are running. Run the simulation when you want to supervise the node health.'}
+        </div>
+      )
     }
     return (
       <div className="claim-box">
@@ -639,6 +726,84 @@ function App() {
         </button>
       </div>
     )
+  }
+
+  async function dispatchSensorIncidentNotification({
+    severity,
+    title,
+    message,
+    buildingName,
+    sensorName,
+    metadata,
+  }: {
+    severity: NotificationSeverity
+    title: string
+    message: string
+    buildingName: string
+    sensorName: string
+    metadata: Record<string, unknown>
+  }) {
+    if (!session) return
+    try {
+      await dispatchNotification(session.token, {
+        title,
+        message,
+        severity,
+        buildingName,
+        sensorName,
+        networkName: nitwReference?.network.name ?? 'NITW',
+        metadata,
+      })
+    } catch (error) {
+      console.warn('Notification dispatch failed', error)
+    }
+  }
+
+  async function autoShutdownSensor(
+    building: CampusBuilding,
+    sensor: BuildingSensor,
+    sensorModel: SensorModelInsight | undefined,
+    persistedSeconds: number,
+  ) {
+    try {
+      await updateSensorActivity(sensor.id, false, {
+        restoreBuildingId: selectedBuildingId || building.id,
+        reopenModal: showBuildingModal && selectedBuildingId === building.id,
+        failureLabel: 'Automatic shutdown failed',
+      })
+      await dispatchSensorIncidentNotification({
+        severity: 'critical',
+        title: `${building.name} / ${sensor.name} auto shutdown`,
+        message: `${sensor.name} stayed in red status for ${persistedSeconds}s, so the system turned it off automatically and notified the user.`,
+        buildingName: building.name,
+        sensorName: sensor.name,
+        metadata: {
+          nodeStatus: sensor.status,
+          aiLabel: sensorModel?.label ?? 'stable',
+          anomalyScore: sensorModel?.anomalyScore ?? null,
+          actionTaken: 'turned_off_automatically',
+          persistedSeconds,
+          sensorId: sensor.sensorId,
+        },
+      })
+    } catch (error) {
+      await dispatchSensorIncidentNotification({
+        severity: 'critical',
+        title: `${building.name} / ${sensor.name} auto shutdown failed`,
+        message: `${sensor.name} stayed in red status for ${persistedSeconds}s, but automatic turn off failed. User action is required immediately.`,
+        buildingName: building.name,
+        sensorName: sensor.name,
+        metadata: {
+          nodeStatus: sensor.status,
+          aiLabel: sensorModel?.label ?? 'stable',
+          anomalyScore: sensorModel?.anomalyScore ?? null,
+          actionTaken: 'auto_shutdown_failed',
+          persistedSeconds,
+          sensorId: sensor.sensorId,
+          error: error instanceof Error ? error.message : 'unknown_error',
+        },
+      })
+    }
   }
 
   if (!session) {
@@ -667,21 +832,22 @@ function App() {
       <header className="network-header">
         <div>
           <p className="kicker">NITW Building Control</p>
-          <h1>Claim buildings and inspect internal sensor anomalies</h1>
-          <p className="header-copy">Signed in as {session.email}</p>
+          <h1>Claim buildings and watch live sensor node health</h1>
+          <p className="header-copy">Signed in as {session.email}. Blue means unclaimed, and claimed nodes switch live between green, orange, and red from the frontend sensor simulator plus AI.</p>
         </div>
         <div className="header-actions">
           <div className="header-stats">
             <div className="header-stat"><span>Claimed buildings</span><strong>{stats.claimed}</strong></div>
-            <div className="header-stat"><span>Total buildings</span><strong>{buildings.length}</strong></div>
-            <div className="header-stat"><span>Total sensors</span><strong>{stats.sensors}</strong></div>
-            <div className="header-stat"><span>Red buildings</span><strong>{stats.red}</strong></div>
-            <div className="header-stat"><span>AI flagged sensors</span><strong>{modelInsights.summary.highRiskSensors}</strong></div>
+            <div className="header-stat header-stat--unclaimed"><span>Blue buildings</span><strong>{stats.blue}</strong></div>
+            <div className="header-stat header-stat--good"><span>Green buildings</span><strong>{stats.green}</strong></div>
+            <div className="header-stat header-stat--watch"><span>Orange buildings</span><strong>{stats.orange}</strong></div>
+            <div className="header-stat header-stat--critical"><span>Red buildings</span><strong>{stats.red}</strong></div>
+            <div className="header-stat"><span>Live nodes</span><strong>{stats.activeSensors}</strong></div>
           </div>
           <div className="header-button-row">
             <button className="ghost-button" disabled={pageBusy || saveBuildingBusy} onClick={beginAddBuildingMode} type="button">Add building</button>
             <button className="ghost-button ghost-button--accent" disabled={pageBusy || superviseBusy} onClick={() => void handleSupervise()} type="button">
-              {superviseBusy ? 'Supervising...' : 'Supervise'}
+              {superviseBusy ? 'Simulating...' : 'Simulate Supervision'}
             </button>
             <button className="ghost-button" onClick={logout} type="button">Logout</button>
           </div>
@@ -730,9 +896,10 @@ function App() {
                     <span>Sensors inside: {building.sensorCount}</span>
                     <span>Expected aggregate: {building.expectedMw.toFixed(2)} MW</span>
                     <span>Current aggregate: {building.currentMw.toFixed(2)} MW</span>
-                    <span>Anomalous sensors: {building.sensors.filter((sensor) => sensor.status === 'deviation').length}</span>
+                    <span>Orange sensors: {countSensorsByStatus(building.sensors, 'watch')}</span>
+                    <span>Red sensors: {countSensorsByStatus(building.sensors, 'critical')}</span>
                     <span>AI high-risk sensors: {modelInsights.buildings[building.id]?.highRiskSensorCount ?? 0}</span>
-                    <span className={`map-badge map-badge--${building.status}`}>{statusLabel(building.status)}</span>
+                    <span className={`map-badge map-badge--${building.status}`}>{statusColorLabel(building.status)} / {statusLabel(building.status)}</span>
                     <button className="ghost-button ghost-button--accent" onClick={() => openBuildingModal(building.id)} type="button">Expand building</button>
                     {renderClaimBox(building)}
                   </div>
@@ -770,10 +937,24 @@ function App() {
           <article className="panel panel--summary">
             <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
-            <div className="metric"><span>Status</span><strong>{pageBusy ? 'Refreshing...' : supervised ? 'Live supervised' : 'Starting live feed'}</strong></div>
+            <div className="metric"><span>Stream mode</span><strong>{pageBusy ? 'Refreshing packets...' : supervised ? 'Frontend packets + simulation' : 'Frontend packets only'}</strong></div>
             <div className="metric"><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
             <div className="metric"><span>AI source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
             <div className="metric"><span>Last sensor tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
+          </article>
+
+          <article className="panel panel--legend">
+            <div className="panel-heading"><div><p className="kicker">Node Legend</p><h2>Live color logic</h2></div></div>
+            <div className="legend-grid">
+              {(['unclaimed', 'good', 'watch', 'critical'] as const).map((status) => (
+                <div className={`legend-pill legend-pill--${status}`} key={status}>
+                  <span className={`legend-dot legend-dot--${status}`} />
+                  <strong>{statusColorLabel(status)}</strong>
+                  <span>{statusLabel(status)}</span>
+                </div>
+              ))}
+            </div>
+            <p className="legend-copy">Node colors update in real time from the AI prediction window fed by the frontend sensor simulator. Use Simulate Supervision when you want to replay the operator supervision view.</p>
           </article>
 
           <article className="panel panel--alerts">
@@ -815,7 +996,7 @@ function App() {
                 <div><span>Sensors active</span><strong>{selectedBuildingActiveSensorCount} / {selectedBuilding.sensorCount}</strong></div>
                 <div><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
                 <div><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
-                <div><span>AI top label</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : selectedBuildingHasActiveSensors ? 'Waiting' : 'Inactive'}</strong></div>
+                <div><span>AI top label</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : selectedBuildingHasActiveSensors ? 'Waiting' : 'Turned Off'}</strong></div>
                 <div><span>AI risk score</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? formatPercent(selectedBuildingModel.anomalyScore) : '--'}</strong></div>
                 <div><span>Forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
               </div>
@@ -830,14 +1011,22 @@ function App() {
                           <strong>{sensor.name}</strong>
                           <span>{sensor.sensorId}</span>
                         </div>
-                        <span className={sensor.isActive ? `mini-badge model-badge model-badge--${sensorModel ? modelToneClass(sensorModel.label) : 'stable'}` : 'mini-badge status-inactive'}>
-                          {sensor.isActive ? sensorModel ? modelLabel(sensorModel.label) : 'Streaming' : 'Turned Off'}
-                        </span>
+                        <div className="node-preview__badges">
+                          <span className={`mini-badge status-${sensor.status}`}>{statusLabel(sensor.status)}</span>
+                          <span className={sensor.isActive ? `mini-badge model-badge model-badge--${sensorModel ? modelToneClass(sensorModel.label) : 'stable'}` : 'mini-badge status-offline'}>
+                            {sensor.isActive ? sensorModel ? modelLabel(sensorModel.label) : 'Streaming' : 'Turned Off'}
+                          </span>
+                        </div>
                       </div>
                       <div className="node-preview__metrics">
                         <span>{sensor.currentMw.toFixed(3)} MW</span>
                         <span>{sensor.isActive && latestPoint ? `${latestPoint.voltageV.toFixed(0)} V` : '--'}</span>
                         <span>{sensor.isActive && latestPoint ? formatRelativeTick(latestPoint.timestamp) : 'Sensor off'}</span>
+                      </div>
+                      <div className="telemetry-chip-row">
+                        {buildTelemetryChips(latestPoint, sensor.isActive).map((chip) => (
+                          <span className={`telemetry-chip telemetry-chip--${chip.tone}`} key={chip.label}>{chip.label}</span>
+                        ))}
                       </div>
                     </article>
                   )
@@ -868,7 +1057,8 @@ function App() {
             <div className="building-modal__summary">
               <div className="metric"><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
               <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
-              <div className="metric"><span>Anomalous sensors</span><strong>{selectedBuilding.sensors.filter((sensor) => sensor.status === 'deviation').length}</strong></div>
+              <div className="metric"><span>Orange sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'watch')}</strong></div>
+              <div className="metric"><span>Red sensors</span><strong>{countSensorsByStatus(selectedBuilding.sensors, 'critical')}</strong></div>
               <div className="metric"><span>Active sensors</span><strong>{selectedBuildingActiveSensorCount}</strong></div>
               <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingHasActiveSensors ? selectedBuildingModel?.highRiskSensorCount ?? 0 : 0}</strong></div>
               <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
@@ -903,7 +1093,7 @@ function App() {
                     <div><span>Hardware ID</span><strong>{selectedBuilding.hardwareId}</strong></div>
                     <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
                     <div><span>Coordinates</span><strong>{selectedBuilding.lat.toFixed(6)}, {selectedBuilding.lng.toFixed(6)}</strong></div>
-                    <div><span>Supervision</span><strong>{supervised ? 'Live' : 'Starting'}</strong></div>
+                    <div><span>Simulation mode</span><strong>{supervised ? 'Running' : 'Ready to start'}</strong></div>
                     <div><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
                     <div><span>Model source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
                     <div><span>Latest tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
@@ -925,13 +1115,14 @@ function App() {
                           <div className="sensor-card__header sensor-card__header--split">
                             <div><strong>{sensor.name}</strong><span>{sensor.sensorId}</span></div>
                             <div className="sensor-card__badges">
-                              <span className={`mini-badge status-${sensor.status}`}>{sensor.isActive ? comparisonLabel(sensor.comparisonStatus) : 'Turned off'}</span>
+                              <span className={`mini-badge status-${sensor.status}`}>{statusLabel(sensor.status)}</span>
                               {sensor.isActive && sensorModel ? <span className={`mini-badge model-badge model-badge--${modelToneClass(sensorModel.label)}`}>{modelLabel(sensorModel.label)}</span> : null}
                             </div>
                           </div>
                           <div className="sensor-card__metrics sensor-card__metrics--grid">
                             <span>Expected: {sensor.expectedMw.toFixed(3)} MW</span>
                             <span>Measured: {sensor.currentMw.toFixed(3)} MW</span>
+                            <span>Compare state: {sensor.isActive ? comparisonLabel(sensor.comparisonStatus) : 'Turned off'}</span>
                             <span>Simulated exact: {sensor.comparedExpectedMw !== null ? formatMw(sensor.comparedExpectedMw) : 'Unavailable'}</span>
                             <span>Measured exact: {sensor.comparedActualMw !== null ? formatMw(sensor.comparedActualMw) : 'No reading'}</span>
                             <span>Delta: {sensor.deltaMw !== null ? formatSignedMw(sensor.deltaMw) : 'Not comparable'}</span>
@@ -939,9 +1130,14 @@ function App() {
                           </div>
                           <div className="sensor-stream-row">
                             <span className={`signal-dot signal-dot--${sensor.status}`} />
-                            <span>{sensor.isActive ? latestPoint ? `Live packet ${formatClock(latestPoint.timestamp)}` : 'Awaiting first packet' : 'Sensor manually turned off'}</span>
+                            <span>{sensor.isActive ? latestPoint ? `Sensor packet ${formatClock(latestPoint.timestamp)}` : 'Awaiting first packet' : 'Sensor manually turned off'}</span>
                             <span>{sensor.isActive && latestPoint ? `${latestPoint.voltageV.toFixed(1)} V` : '--'}</span>
                             <span>{sensor.isActive && latestPoint ? `${latestPoint.currentA.toFixed(2)} A` : '--'}</span>
+                          </div>
+                          <div className="telemetry-chip-row">
+                            {buildTelemetryChips(latestPoint, sensor.isActive).map((chip) => (
+                              <span className={`telemetry-chip telemetry-chip--${chip.tone}`} key={chip.label}>{chip.label}</span>
+                            ))}
                           </div>
 
                           {selectedBuilding.claimedByCurrentUser ? (
@@ -982,12 +1178,12 @@ function App() {
                             </div>
                           ) : null}
 
-                          {selectedBuilding.claimedByCurrentUser && supervised && sensor.status === 'deviation' ? (
+                          {selectedBuilding.claimedByCurrentUser && supervised && (sensor.status === 'watch' || sensor.status === 'critical') ? (
                             <div className="review-box review-box--panel">
                               <strong>Operator decision</strong>
                               <div className="review-actions">
                                 <button onClick={() => markSensorReview(sensor.id, 'normal')} type="button">Mark normal</button>
-                                <button onClick={() => markSensorReview(sensor.id, 'anomaly')} type="button">Keep anomaly</button>
+                                <button onClick={() => markSensorReview(sensor.id, 'anomaly')} type="button">Keep issue</button>
                                 {sensor.reviewDecision ? <button className="ghost-button" onClick={() => clearSensorReview(sensor.id)} type="button">Clear review</button> : null}
                               </div>
                             </div>
@@ -1152,15 +1348,32 @@ function buildLiveHistoryPoint(
 ): SensorHistoryPoint {
   const voltageV = numberOrNull(metadata.voltageV)
   const currentA = numberOrNull(metadata.currentA)
+  const signalStrengthDbm = numberOrNull(metadata.signalStrength)
+  const simulatorLabel = typeof metadata.label === 'string' ? metadata.label : null
+  const streamId = typeof metadata.streamId === 'string' ? metadata.streamId : null
+  const anomalyFrame = metadata.isAnomaly === true || metadata.isAnomaly === 1 || metadata.isAnomaly === '1'
+  const simulated = metadata.simulated === true
   if (voltageV !== null && currentA !== null) {
     return {
       timestamp,
       powerMw: Number(powerMw.toFixed(4)),
       voltageV: Number(voltageV.toFixed(1)),
       currentA: Number(currentA.toFixed(2)),
+      signalStrengthDbm,
+      simulated,
+      simulatorLabel,
+      anomalyFrame,
+      streamId,
     }
   }
-  return buildSensorHistoryPoint(sensorId, expectedMw, powerMw, index, timestamp)
+  return {
+    ...buildSensorHistoryPoint(sensorId, expectedMw, powerMw, index, timestamp),
+    signalStrengthDbm,
+    simulated,
+    simulatorLabel,
+    anomalyFrame,
+    streamId,
+  }
 }
 
 function buildSensorHistoryPoint(
@@ -1289,20 +1502,65 @@ function fakeReadingForLoad(load: NitwReference['loads'][number] | undefined) {
   return Number((load.p_mw * (1 + (((checksum % 9) - 4) * 0.0125))).toFixed(4))
 }
 
-function isProblemComparisonStatus(status: string | null) {
-  return status === 'deviation' || status === 'topology_issue' || status === 'missing_actual' || status === 'missing_expected'
+function countSensorsByStatus(sensors: BuildingSensor[], status: VisualStatus) {
+  return sensors.filter((sensor) => sensor.status === status).length
+}
+
+function comparisonVisualStatus(status: string | null): VisualStatus {
+  if (!status || status === 'match') return 'good'
+  if (status === 'inactive') return 'offline'
+  if (status === 'deviation') return 'watch'
+  return 'critical'
+}
+
+function sensorModelVisualStatus(
+  sensorModel: SensorModelInsight | undefined,
+  reviewDecision: SensorReviewDecision | null,
+): VisualStatus {
+  if (reviewDecision === 'normal') return 'good'
+  if (reviewDecision === 'anomaly') return sensorModel?.label === 'outage' ? 'critical' : 'watch'
+  if (!sensorModel) return 'good'
+  if (sensorModel.label === 'outage') return 'critical'
+  if (sensorModel.label === 'overload' && sensorModel.anomalyScore >= 0.78) return 'critical'
+  if (sensorModel.anomalyScore >= 0.85) return 'critical'
+  if (sensorModel.label !== 'stable' && sensorModel.anomalyScore >= 0.55) return 'watch'
+  if (sensorModel.anomalyScore >= 0.48) return 'watch'
+  return 'good'
+}
+
+function summarizeSensorStatuses(sensors: BuildingSensor[]) {
+  if (!sensors.some((sensor) => sensor.isActive)) return 'offline'
+  if (sensors.some((sensor) => sensor.status === 'critical')) return 'critical'
+  if (sensors.some((sensor) => sensor.status === 'watch')) return 'watch'
+  if (sensors.every((sensor) => sensor.status === 'unclaimed' || sensor.status === 'offline')) return 'unclaimed'
+  return 'good'
+}
+
+function maxVisualStatus(...statuses: VisualStatus[]) {
+  return [...statuses].sort((left, right) => visualStatusRank(right) - visualStatusRank(left))[0] ?? 'good'
+}
+
+function visualStatusRank(status: VisualStatus) {
+  return {
+    offline: 0,
+    unclaimed: 1,
+    good: 2,
+    watch: 3,
+    critical: 4,
+  }[status]
 }
 
 function resolveSensorVisualStatus(
   sensor: BuildingSensor,
   sensorModel: SensorModelInsight | undefined,
 ): VisualStatus {
-  if (!sensor.isActive) return 'inactive'
-  if (sensor.reviewDecision === 'normal') return 'healthy'
+  if (!sensor.isActive) return 'offline'
   if (sensor.status === 'unclaimed') return 'unclaimed'
-  if (sensor.status === 'deviation') return 'deviation'
-  if (sensorModel && sensorModel.label !== 'stable' && sensorModel.anomalyScore >= 0.6) return 'deviation'
-  return 'healthy'
+  return maxVisualStatus(
+    sensor.status,
+    comparisonVisualStatus(sensor.comparisonStatus),
+    sensorModelVisualStatus(sensorModel, sensor.reviewDecision),
+  )
 }
 
 function resolveBuildingVisualStatus(
@@ -1311,25 +1569,28 @@ function resolveBuildingVisualStatus(
   buildingModel: BuildingModelInsight | undefined,
 ): VisualStatus {
   if (currentStatus === 'unclaimed') return 'unclaimed'
-  if (!sensors.some((sensor) => sensor.isActive)) return 'inactive'
-  if (sensors.some((sensor) => sensor.status === 'deviation')) return 'deviation'
-  if (buildingModel && buildingModel.highRiskSensorCount > 0 && buildingModel.anomalyScore >= 0.6) return 'deviation'
-  return 'healthy'
+  if (!sensors.some((sensor) => sensor.isActive)) return 'offline'
+  const sensorStatus = summarizeSensorStatuses(sensors)
+  if (sensorStatus === 'critical' || sensorStatus === 'watch') return sensorStatus
+  if (buildingModel?.label === 'outage' || (buildingModel?.anomalyScore ?? 0) >= 0.85) return 'critical'
+  if (buildingModel && buildingModel.highRiskSensorCount > 0 && buildingModel.anomalyScore >= 0.55) return 'watch'
+  return 'good'
 }
 
-function fillColor(status: VisualStatus) { return status === 'healthy' ? '#64d7a1' : status === 'deviation' ? '#f09090' : status === 'inactive' ? '#c2c8cf' : '#7eb6ff' }
-function borderColor(status: VisualStatus) { return status === 'healthy' ? '#17885c' : status === 'deviation' ? '#c44747' : status === 'inactive' ? '#6b7480' : '#2e6bd3' }
-function edgeColor(status: VisualStatus) { return status === 'healthy' ? '#1b9f6e' : status === 'deviation' ? '#d74b4b' : status === 'inactive' ? '#7a828d' : '#2c70d8' }
-function statusLabel(status: VisualStatus) { return status === 'healthy' ? 'Healthy' : status === 'deviation' ? 'Deviation' : status === 'inactive' ? 'Inactive' : 'Unclaimed' }
+function fillColor(status: VisualStatus) { return status === 'good' ? '#64d7a1' : status === 'watch' ? '#f5b14c' : status === 'critical' ? '#f09090' : status === 'offline' ? '#c2c8cf' : '#7eb6ff' }
+function borderColor(status: VisualStatus) { return status === 'good' ? '#17885c' : status === 'watch' ? '#c57a0e' : status === 'critical' ? '#c44747' : status === 'offline' ? '#6b7480' : '#2e6bd3' }
+function edgeColor(status: VisualStatus) { return status === 'good' ? '#1b9f6e' : status === 'watch' ? '#dc8d1c' : status === 'critical' ? '#d74b4b' : status === 'offline' ? '#7a828d' : '#2c70d8' }
+function statusLabel(status: VisualStatus) { return status === 'good' ? 'All Good' : status === 'watch' ? 'OK OK' : status === 'critical' ? 'Serious Issue' : status === 'offline' ? 'Turned Off' : 'Unclaimed' }
+function statusColorLabel(status: VisualStatus) { return status === 'good' ? 'Green' : status === 'watch' ? 'Orange' : status === 'critical' ? 'Red' : status === 'offline' ? 'Grey' : 'Blue' }
 
 function comparisonLabel(status: string | null) {
-  if (!status) return 'Not run yet'
+  if (!status) return 'Simulation ready'
   if (status === 'inactive') return 'Turned off'
   if (status === 'topology_issue') return 'Topology issue'
   if (status === 'missing_actual') return 'Missing sensor value'
   if (status === 'missing_expected') return 'Missing simulation value'
-  if (status === 'match') return 'Match'
-  if (status === 'deviation') return 'Deviation'
+  if (status === 'match') return 'Aligned'
+  if (status === 'deviation') return 'Needs attention'
   return status
 }
 
@@ -1349,6 +1610,55 @@ function modelToneClass(label: string) {
   if (label === 'overload') return 'danger'
   if (label === 'outage') return 'danger'
   return 'stable'
+}
+
+function buildTelemetryChips(point: SensorHistoryPoint | undefined, active = true) {
+  const chips: Array<{ label: string; tone: 'good' | 'watch' | 'critical' | 'neutral' }> = []
+
+  if (!active) {
+    chips.push({ label: 'Sensor turned off', tone: 'neutral' })
+    return chips
+  }
+
+  if (!point) {
+    chips.push({ label: 'Waiting for sensor packet', tone: 'neutral' })
+    return chips
+  }
+
+  chips.push({
+    label: point.simulated ? 'Simulated sensor packet' : 'Live sensor packet',
+    tone: point.anomalyFrame ? 'critical' : 'neutral',
+  })
+
+  if (typeof point.signalStrengthDbm === 'number') {
+    chips.push({
+      label: `RSSI ${point.signalStrengthDbm} dBm`,
+      tone: point.signalStrengthDbm <= -82 ? 'watch' : 'good',
+    })
+  }
+
+  if (point.simulatorLabel) {
+    chips.push({
+      label: telemetryLabel(point.simulatorLabel),
+      tone: point.anomalyFrame ? 'critical' : 'neutral',
+    })
+  }
+
+  if (point.streamId) {
+    chips.push({
+      label: `Stream ${point.streamId}`,
+      tone: 'neutral',
+    })
+  }
+
+  return chips
+}
+
+function telemetryLabel(value: string) {
+  return value
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 function formatPercent(value: number) {
@@ -1382,7 +1692,7 @@ function formatRelativeTick(value: string) {
 }
 
 function liveSourceLabel(source: 'synthetic-window' | 'live-window') {
-  return source === 'live-window' ? 'WebSocket sensor stream' : 'Bootstrapped last snapshot'
+  return source === 'live-window' ? 'Frontend live sensor window' : 'Bootstrapped startup snapshot'
 }
 
 function buildUniqueId(baseId: string, existingIds: string[]) {
@@ -1406,7 +1716,7 @@ function buildNotificationDetail(
   if (sensorModel.label === 'outage') return `Packet power dropped to ${sensor.currentMw.toFixed(3)} MW and the model sees an outage-like event.`
   if (sensorModel.label === 'overload') return `Load is climbing toward ${sensorModel.forecastMw.toFixed(3)} MW with ${formatPercent(sensorModel.confidence)} prediction strength.`
   if (sensorModel.label === 'undervoltage') return `Voltage trend is softening while the node stays active, so the stream is marked as undervoltage risk.`
-  if (sensorModel.label === 'sensor_fault') return 'The recent live packets are oscillating unusually, so the sensor stream may be noisy or unstable.'
+  if (sensorModel.label === 'sensor_fault') return 'The recent frontend packets are oscillating unusually, so the sensor signal may be noisy or unstable.'
   return 'Node remains inside the expected live band.'
 }
 

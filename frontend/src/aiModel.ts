@@ -24,6 +24,11 @@ export type SensorHistoryPoint = {
   voltageV: number
   currentA: number
   powerMw: number
+  signalStrengthDbm?: number | null
+  simulated?: boolean
+  simulatorLabel?: string | null
+  anomalyFrame?: boolean
+  streamId?: string | null
 }
 
 export type SensorModelInsight = {

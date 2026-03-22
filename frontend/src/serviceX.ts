@@ -114,6 +114,29 @@ export type CompareResponse = {
   }>
 }
 
+export type NotificationSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical'
+
+export type NotificationDispatchPayload = {
+  title: string
+  message: string
+  severity: NotificationSeverity
+  buildingName?: string
+  sensorName?: string
+  networkName?: string
+  metadata?: Record<string, unknown>
+  recipients?: string[]
+}
+
+export type NotificationDispatchResponse = {
+  success: boolean
+  sent: boolean
+  recipientCount: number
+  highestSeverity: string
+  subject?: string | null
+  transport?: string | null
+  detail?: string | null
+}
+
 export type LiveFeedEvent =
   | {
       type: 'connection_ready'
@@ -250,6 +273,20 @@ export function compareNitwNetwork(
   )
 }
 
+export function dispatchNotification(
+  token: string,
+  payload: NotificationDispatchPayload,
+): Promise<NotificationDispatchResponse> {
+  return apiFetch<NotificationDispatchResponse>(
+    '/notifications/dispatch',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  )
+}
+
 export function fetchTrainingReplayWindow(
   token: string,
   cursor?: number,
@@ -271,14 +308,4 @@ export function syncNetwork(token: string, networkPayload: NitwReference): Promi
     },
     token,
   )
-}
-
-export function openLiveReadingsSocket(token: string): WebSocket {
-  const url = new URL(API_BASE_URL)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  const basePath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname
-  url.pathname = basePath ? `${basePath}/ws/live-readings` : '/ws/live-readings'
-  url.search = ''
-  url.searchParams.set('token', token)
-  return new WebSocket(url.toString())
 }
