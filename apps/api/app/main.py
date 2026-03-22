@@ -27,7 +27,7 @@ from app.model_runtime import (
     simulate_model_network,
 )
 from app.mqtt_service import mqtt_bridge
-from app.notification_service import NotificationEvent, send_notifications
+from app.notification_service.router import router as notification_router
 from app.replay_service import get_training_replay_window
 from app.sensor_simulator import sensor_simulator
 from app.schemas import (
@@ -42,8 +42,6 @@ from app.schemas import (
     ModelGraphAnalyzeRequest,
     ModelServiceResponse,
     MqttStatusResponse,
-    NotificationDispatchRequest,
-    NotificationDispatchResponse,
     RegisterRequest,
     TelemetryPayload,
 )
@@ -68,6 +66,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(notification_router)
 
 
 @app.on_event("startup")
@@ -133,46 +133,6 @@ def get_mqtt_status() -> MqttStatusResponse:
         lastMessageAt=mqtt_bridge.status.last_message_at,
         lastError=mqtt_bridge.status.last_error,
     )
-
-
-@app.post("/notifications/dispatch", response_model=NotificationDispatchResponse)
-def dispatch_notification(
-    payload: NotificationDispatchRequest,
-    current_user: dict = Depends(get_current_user),
-) -> NotificationDispatchResponse:
-    recipients = payload.recipients or [current_user["email"]]
-    try:
-        result = send_notifications(
-            recipients,
-            [
-                NotificationEvent(
-                    title=payload.title,
-                    message=payload.message,
-                    severity=payload.severity,
-                    building_name=payload.buildingName,
-                    sensor_name=payload.sensorName,
-                    network_name=payload.networkName,
-                    metadata=payload.metadata,
-                )
-            ],
-        )
-        return NotificationDispatchResponse(
-            success=True,
-            sent=result.sent,
-            recipientCount=len(result.recipients),
-            highestSeverity=result.highest_severity,
-            subject=result.subject,
-            transport=result.transport,
-        )
-    except Exception as error:
-        return NotificationDispatchResponse(
-            success=False,
-            sent=False,
-            recipientCount=len(recipients),
-            highestSeverity=payload.severity,
-            transport="error",
-            detail=str(error),
-        )
 
 
 @app.post("/auth/register", response_model=AuthResponse, status_code=201)

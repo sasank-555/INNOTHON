@@ -137,6 +137,52 @@ export type NotificationDispatchResponse = {
   detail?: string | null
 }
 
+export type SafetyTriggerSeverity = 'green' | 'yellow' | 'red'
+
+export type SafetyTriggerPayload = {
+  sensorId: string
+  severity: SafetyTriggerSeverity
+  title: string
+  message: string
+  hardwareId?: string
+  deviceId?: string
+  relayNumber?: number
+  buildingName?: string
+  sensorName?: string
+  networkName?: string
+  metadata?: Record<string, unknown>
+}
+
+export type SafetyTriggerResponse = {
+  success: boolean
+  severity: SafetyTriggerSeverity
+  emailsSent: boolean
+  recipientEmails: string[]
+  autoShutdownQueued: boolean
+  commandId?: string | null
+  actionLinks: Record<string, string>
+  transport?: string | null
+  subject?: string | null
+  detail: string
+}
+
+export type SensorControlPayload = {
+  sensorId: string
+  targetState: 'on' | 'off'
+  hardwareId?: string
+  deviceId?: string
+  relayNumber?: number
+}
+
+export type SensorControlResponse = {
+  success: boolean
+  targetState: 'on' | 'off'
+  commandId?: string | null
+  hardwareId?: string | null
+  loadId?: string | null
+  detail: string
+}
+
 export type LiveFeedEvent =
   | {
       type: 'connection_ready'
@@ -279,6 +325,34 @@ export function dispatchNotification(
 ): Promise<NotificationDispatchResponse> {
   return apiFetch<NotificationDispatchResponse>(
     '/notifications/dispatch',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  )
+}
+
+export function triggerSafetyNotification(
+  token: string,
+  payload: SafetyTriggerPayload,
+): Promise<SafetyTriggerResponse> {
+  return apiFetch<SafetyTriggerResponse>(
+    '/notifications/safety-trigger',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  )
+}
+
+export function controlSensor(
+  token: string,
+  payload: SensorControlPayload,
+): Promise<SensorControlResponse> {
+  return apiFetch<SensorControlResponse>(
+    '/notifications/sensor-control',
     {
       method: 'POST',
       body: JSON.stringify(payload),

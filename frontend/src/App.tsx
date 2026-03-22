@@ -15,7 +15,7 @@ import { buildFrontendTelemetryPacket, FRONTEND_SENSOR_INTERVAL_MS } from './sen
 import {
   claimDevice,
   compareNitwNetwork,
-  dispatchNotification,
+  controlSensor,
   fetchClaimedDevices,
   fetchInventory,
   fetchNitwReference,
@@ -24,8 +24,8 @@ import {
   syncNetwork,
   type DeviceRecord,
   type LiveFeedEvent,
-  type NotificationSeverity,
   type NitwReference,
+  triggerSafetyNotification,
 } from './serviceX'
 
 type AuthMode = 'login' | 'register'
@@ -422,7 +422,10 @@ function App() {
 
           if (sensor.status === 'watch') {
             void dispatchSensorIncidentNotification({
-              severity: 'medium',
+              severity: 'yellow',
+              sensorId: sensor.sensorId,
+              hardwareId: building.hardwareId,
+              relayNumber: sensor.sensorIndex,
               title: `${building.name} / ${sensor.name} warning`,
               message: `${sensor.name} moved into orange status. The AI is warning about ${sensorModel ? modelLabel(sensorModel.label).replace('AI ', '').toLowerCase() : 'node instability'}, and the user can turn the node off if needed.`,
               buildingName: building.name,
@@ -614,10 +617,10 @@ function App() {
     }
   }
 
-  async function handleSetSensorActive(sensorId: string, nextIsActive: boolean) {
+  async function handleSetSensorActive(sensor: BuildingSensor, nextIsActive: boolean) {
     if (!selectedBuilding) return
     try {
-      await updateSensorActivity(sensorId, nextIsActive, {
+      await updateSensorActivity(sensor, nextIsActive, {
         restoreBuildingId: selectedBuilding.id,
         reopenModal: showBuildingModal,
         failureLabel: `Failed to turn ${nextIsActive ? 'on' : 'off'} sensor`,
@@ -628,15 +631,20 @@ function App() {
   }
 
   async function updateSensorActivity(
-    sensorId: string,
+    sensor: BuildingSensor,
     nextIsActive: boolean,
     options?: { restoreBuildingId?: string; reopenModal?: boolean; failureLabel?: string },
   ) {
-    if (!session || !nitwReference) return
-    setSensorToggleBusyId(sensorId)
+    if (!session || !selectedBuilding) return
+    setSensorToggleBusyId(sensor.id)
     setSensorToggleError('')
     try {
-      await syncNetwork(session.token, buildNetworkWithSensorActivity(nitwReference, sensorId, nextIsActive))
+      await controlSensor(session.token, {
+        sensorId: sensor.sensorId,
+        targetState: nextIsActive ? 'on' : 'off',
+        hardwareId: selectedBuilding.hardwareId,
+        relayNumber: sensor.sensorIndex,
+      })
       await loadDashboard(session.token, supervised)
       if (options?.restoreBuildingId) setSelectedBuildingId(options.restoreBuildingId)
       if (options?.reopenModal) setShowBuildingModal(true)
@@ -730,13 +738,19 @@ function App() {
 
   async function dispatchSensorIncidentNotification({
     severity,
+    sensorId,
+    hardwareId,
+    relayNumber,
     title,
     message,
     buildingName,
     sensorName,
     metadata,
   }: {
-    severity: NotificationSeverity
+    severity: 'yellow' | 'red'
+    sensorId: string
+    hardwareId: string
+    relayNumber: number
     title: string
     message: string
     buildingName: string
@@ -745,10 +759,13 @@ function App() {
   }) {
     if (!session) return
     try {
-      await dispatchNotification(session.token, {
+      await triggerSafetyNotification(session.token, {
+        sensorId,
+        severity,
         title,
         message,
-        severity,
+        hardwareId,
+        relayNumber,
         buildingName,
         sensorName,
         networkName: nitwReference?.network.name ?? 'NITW',
@@ -766,13 +783,16 @@ function App() {
     persistedSeconds: number,
   ) {
     try {
-      await updateSensorActivity(sensor.id, false, {
+      await updateSensorActivity(sensor, false, {
         restoreBuildingId: selectedBuildingId || building.id,
         reopenModal: showBuildingModal && selectedBuildingId === building.id,
         failureLabel: 'Automatic shutdown failed',
       })
       await dispatchSensorIncidentNotification({
-        severity: 'critical',
+        severity: 'red',
+        sensorId: sensor.sensorId,
+        hardwareId: building.hardwareId,
+        relayNumber: sensor.sensorIndex,
         title: `${building.name} / ${sensor.name} auto shutdown`,
         message: `${sensor.name} stayed in red status for ${persistedSeconds}s, so the system turned it off automatically and notified the user.`,
         buildingName: building.name,
@@ -788,9 +808,12 @@ function App() {
       })
     } catch (error) {
       await dispatchSensorIncidentNotification({
-        severity: 'critical',
-        title: `${building.name} / ${sensor.name} auto shutdown failed`,
-        message: `${sensor.name} stayed in red status for ${persistedSeconds}s, but automatic turn off failed. User action is required immediately.`,
+        severity: 'yellow',
+        sensorId: sensor.sensorId,
+        hardwareId: building.hardwareId,
+        relayNumber: sensor.sensorIndex,
+        title: `${building.name} / ${sensor.name} manual shutdown required`,
+        message: `${sensor.name} stayed in red status for ${persistedSeconds}s, but automatic turn off failed. Use the email buttons to keep it as is or turn it off remotely.`,
         buildingName: building.name,
         sensorName: sensor.name,
         metadata: {
@@ -1145,7 +1168,7 @@ function App() {
                               <button
                                 className={`ghost-button ${sensor.isActive ? 'ghost-button--danger' : 'ghost-button--accent'}`}
                                 disabled={sensorToggleBusyId === sensor.id}
-                                onClick={() => void handleSetSensorActive(sensor.id, !sensor.isActive)}
+                                onClick={() => void handleSetSensorActive(sensor, !sensor.isActive)}
                                 type="button"
                               >
                                 {sensorToggleBusyId === sensor.id ? sensor.isActive ? 'Turning off...' : 'Turning on...' : sensor.isActive ? 'Turn Off' : 'Turn On'}
@@ -1443,18 +1466,6 @@ function buildNetworkWithAddedSensor(nitwReference: NitwReference, building: Cam
     buildings: normalizedBuildings(nitwReference),
     loads: [...nitwReference.loads, { id: loadId, name, bus_id: building.busId, building_id: building.id, sensor_index: sensorIndex, is_active: true, p_mw: pMw, q_mvar: qMvar, lat: building.lat, long: building.lng }],
     sensor_links: [...nitwReference.sensor_links, { sensor_id: sensorId, element_type: 'load', element_id: loadId, measurement: 'p_mw' }],
-  }
-}
-
-function buildNetworkWithSensorActivity(
-  nitwReference: NitwReference,
-  sensorNodeId: string,
-  nextIsActive: boolean,
-): NitwReference {
-  return {
-    ...nitwReference,
-    buildings: normalizedBuildings(nitwReference),
-    loads: nitwReference.loads.map((load) => load.id === sensorNodeId ? { ...load, is_active: nextIsActive } : load),
   }
 }
 

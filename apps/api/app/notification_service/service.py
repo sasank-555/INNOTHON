@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
 import smtplib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
 from typing import Any, Sequence
+
+from .email_config import notification_config
 
 
 SEVERITY_RANK = {
@@ -32,17 +33,17 @@ class NotificationEvent:
 
 @dataclass(frozen=True)
 class NotificationEmailSettings:
-    smtp_host: str = os.getenv("INNOTHON_SMTP_HOST", "")
-    smtp_port: int = int(os.getenv("INNOTHON_SMTP_PORT", "587"))
-    smtp_username: str | None = os.getenv("INNOTHON_SMTP_USERNAME")
-    smtp_password: str | None = os.getenv("INNOTHON_SMTP_PASSWORD")
-    from_email: str = os.getenv("INNOTHON_NOTIFICATION_FROM_EMAIL", "alerts@innothon.local")
-    from_name: str = os.getenv("INNOTHON_NOTIFICATION_FROM_NAME", "INNOTHON Alerts")
-    reply_to: str | None = os.getenv("INNOTHON_NOTIFICATION_REPLY_TO")
-    use_tls: bool = os.getenv("INNOTHON_SMTP_USE_TLS", "true").lower() == "true"
-    use_ssl: bool = os.getenv("INNOTHON_SMTP_USE_SSL", "false").lower() == "true"
-    dry_run: bool = os.getenv("INNOTHON_NOTIFICATION_DRY_RUN", "false").lower() == "true"
-    timeout_seconds: float = float(os.getenv("INNOTHON_SMTP_TIMEOUT_SECONDS", "20"))
+    smtp_host: str = notification_config.smtp_host
+    smtp_port: int = notification_config.smtp_port
+    smtp_username: str | None = notification_config.smtp_username
+    smtp_password: str | None = notification_config.smtp_password
+    from_email: str = notification_config.from_email
+    from_name: str = notification_config.from_name
+    reply_to: str | None = notification_config.reply_to
+    use_tls: bool = notification_config.use_tls
+    use_ssl: bool = notification_config.use_ssl
+    dry_run: bool = notification_config.dry_run
+    timeout_seconds: float = notification_config.timeout_seconds
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,20 @@ class EmailNotificationResult:
     highest_severity: str
     transport: str
     delivered_at: datetime | None = None
+
+
+def render_notifications_text(notifications: Sequence[NotificationEvent]) -> str:
+    normalized_notifications = tuple(_normalize_notifications(notifications))
+    if not normalized_notifications:
+        raise ValueError("At least one notification event is required.")
+    return _build_text_body(normalized_notifications)
+
+
+def render_notifications_html(notifications: Sequence[NotificationEvent]) -> str:
+    normalized_notifications = tuple(_normalize_notifications(notifications))
+    if not normalized_notifications:
+        raise ValueError("At least one notification event is required.")
+    return _build_html_body(normalized_notifications)
 
 
 def send_notifications(
@@ -79,8 +94,8 @@ def send_notifications(
     mail_settings = settings or NotificationEmailSettings()
     highest_severity = _highest_severity(normalized_notifications)
     subject = _build_subject(subject_prefix, highest_severity, normalized_notifications)
-    text_body = _build_text_body(normalized_notifications)
-    html_body = _build_html_body(normalized_notifications)
+    text_body = render_notifications_text(normalized_notifications)
+    html_body = render_notifications_html(normalized_notifications)
     message = _build_message(
         recipients=normalized_recipients,
         subject=subject,
@@ -100,7 +115,7 @@ def send_notifications(
         )
 
     if not mail_settings.smtp_host:
-        raise ValueError("SMTP host is required. Set INNOTHON_SMTP_HOST or pass NotificationEmailSettings.")
+        raise ValueError("SMTP host is required. Update notification_service/email_config.py or pass NotificationEmailSettings.")
 
     _send_message(message, mail_settings)
     return EmailNotificationResult(
@@ -211,13 +226,21 @@ def _build_html_body(notifications: Sequence[NotificationEvent]) -> str:
     cards = "\n".join(_render_html_card(notification) for notification in notifications)
     return f"""\
 <html>
-  <body style="margin:0;padding:24px;background:#f5f7f6;font-family:Segoe UI,Arial,sans-serif;color:#163041;">
-    <div style="max-width:720px;margin:0 auto;">
-      <h1 style="margin:0 0 16px;">INNOTHON Notifications</h1>
-      <div style="display:grid;gap:12px;">
-        {cards}
-      </div>
-    </div>
+  <body style="margin:0;padding:0;background:#f5f7f6;font-family:Segoe UI,Arial,sans-serif;color:#163041;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f7f6;">
+      <tr>
+        <td align="center" style="padding:24px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:720px;">
+            <tr>
+              <td style="padding:0 0 16px 0;">
+                <h1 style="margin:0;font-size:28px;line-height:1.2;">INNOTHON Notifications</h1>
+              </td>
+            </tr>
+            {cards}
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>
 """
@@ -225,31 +248,93 @@ def _build_html_body(notifications: Sequence[NotificationEvent]) -> str:
 
 def _render_html_card(notification: NotificationEvent) -> str:
     accent = _severity_color(notification.severity)
+    turn_off_url = str(notification.metadata.get("turnOffUrl") or "").strip()
+    keep_on_url = str(notification.metadata.get("keepOnUrl") or "").strip()
+    sensor_state = str(notification.metadata.get("sensorState") or "").strip().lower()
     details = []
     if notification.building_name:
         details.append(f"<div><strong>Building:</strong> {escape(notification.building_name)}</div>")
     if notification.sensor_name:
         details.append(f"<div><strong>Sensor:</strong> {escape(notification.sensor_name)}</div>")
-    if notification.metadata:
+    metadata_items = {
+        key: value
+        for key, value in notification.metadata.items()
+        if key not in {"turnOffUrl", "keepOnUrl", "sensorState"}
+    }
+    if metadata_items:
         metadata_rows = "".join(
             f"<li><strong>{escape(str(key))}:</strong> {escape(str(value))}</li>"
-            for key, value in notification.metadata.items()
+            for key, value in metadata_items.items()
         )
         details.append(f"<ul style='margin:8px 0 0 18px;padding:0;'>{metadata_rows}</ul>")
 
+    status_html = ""
+    if sensor_state == "turned_off":
+        status_html = (
+            "<tr>"
+            "<td style=\"padding:14px 18px 0 18px;\">"
+            "<div style=\"border-radius:14px;background:#fdecec;border:1px solid #e5b7b7;padding:12px 14px;"
+            "font-size:13px;line-height:1.5;color:#7e2d2d;font-weight:700;\">"
+            "Sensor has been turned off automatically for safety."
+            "</div>"
+            "</td>"
+            "</tr>"
+        )
+
+    actions_html = ""
+    if turn_off_url or keep_on_url:
+        button_rows = []
+        if turn_off_url:
+            button_rows.append(
+                f"<tr><td style=\"padding:0 18px 12px 18px;\"><a href=\"{escape(turn_off_url)}\" "
+                "style=\"display:block;padding:12px 18px;border-radius:999px;background:#b43d3d;color:#ffffff;"
+                "text-decoration:none;font-weight:700;text-align:center;\">Turn Off Sensor</a></td></tr>"
+            )
+        if keep_on_url:
+            button_rows.append(
+                f"<tr><td style=\"padding:0 18px 0 18px;\"><a href=\"{escape(keep_on_url)}\" "
+                "style=\"display:block;padding:12px 18px;border-radius:999px;background:#1d6d52;color:#ffffff;"
+                "text-decoration:none;font-weight:700;text-align:center;\">Keep As Is</a></td></tr>"
+            )
+        actions_html = (
+            "<tr>"
+            "<td style=\"padding:14px 18px 0 18px;\">"
+            "<div style=\"border-radius:14px;background:#f7efe5;border:1px solid #ead3af;padding:12px 14px;"
+            "font-size:13px;line-height:1.5;color:#6b4b12;font-weight:700;\">"
+            "Choose what should happen to this sensor directly from the email."
+            "</div>"
+            "</td>"
+            "</tr>"
+            f"{''.join(button_rows)}"
+        )
+
     details_html = "".join(details)
     return f"""\
-<section style="background:#ffffff;border:1px solid {accent};border-radius:16px;padding:16px 18px;">
-  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
-    <div>
-      <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:{accent};text-transform:uppercase;">{escape(notification.severity)}</div>
-      <h2 style="margin:6px 0 8px;font-size:18px;">{escape(notification.title)}</h2>
-    </div>
-    <div style="font-size:12px;color:#5f7282;">{escape(notification.occurred_at.astimezone(timezone.utc).isoformat())}</div>
-  </div>
-  <p style="margin:0;color:#2a4152;line-height:1.5;">{escape(notification.message)}</p>
-  <div style="margin-top:10px;font-size:13px;color:#4b6475;">{details_html}</div>
-</section>
+<tr>
+  <td style="padding:0 0 12px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid {accent};border-radius:16px;">
+      <tr>
+        <td style="padding:16px 18px 8px 18px;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:{accent};text-transform:uppercase;">{escape(notification.severity)}</div>
+          <h2 style="margin:6px 0 8px 0;font-size:18px;line-height:1.3;">{escape(notification.title)}</h2>
+          <div style="font-size:12px;line-height:1.5;color:#5f7282;">{escape(notification.occurred_at.astimezone(timezone.utc).isoformat())}</div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:0 18px 0 18px;">
+          <p style="margin:0;color:#2a4152;line-height:1.6;">{escape(notification.message)}</p>
+        </td>
+      </tr>
+      {status_html}
+      {actions_html}
+      <tr>
+        <td style="padding:10px 18px 18px 18px;font-size:13px;line-height:1.6;color:#4b6475;">
+          {details_html}
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
 """
 
 
@@ -266,8 +351,36 @@ def _severity_color(severity: str) -> str:
 def _send_message(message: EmailMessage, settings: NotificationEmailSettings) -> None:
     smtp_class = smtplib.SMTP_SSL if settings.use_ssl else smtplib.SMTP
     with smtp_class(settings.smtp_host, settings.smtp_port, timeout=settings.timeout_seconds) as client:
+        client.ehlo()
         if not settings.use_ssl and settings.use_tls:
             client.starttls()
-        if settings.smtp_username and settings.smtp_password:
-            client.login(settings.smtp_username, settings.smtp_password)
-        client.send_message(message)
+            client.ehlo()
+
+        username = _resolved_smtp_username(settings)
+        password = _resolved_smtp_password(settings)
+        if username and password:
+            try:
+                client.login(username, password)
+            except smtplib.SMTPAuthenticationError as error:
+                raise ValueError("SMTP authentication failed. Check the configured email address and app password.") from error
+        elif settings.smtp_username or settings.smtp_password:
+            raise ValueError("Both SMTP username and SMTP password are required for authenticated email sending.")
+
+        try:
+            client.send_message(message)
+        except smtplib.SMTPException as error:
+            raise ValueError(f"SMTP send failed: {error}") from error
+
+
+def _resolved_smtp_username(settings: NotificationEmailSettings) -> str:
+    username = (settings.smtp_username or "").strip()
+    from_email = (settings.from_email or "").strip()
+    if username and "@" in username:
+        return username
+    if from_email and "@" in from_email:
+        return from_email
+    return username
+
+
+def _resolved_smtp_password(settings: NotificationEmailSettings) -> str:
+    return (settings.smtp_password or "").replace(" ", "").strip()
