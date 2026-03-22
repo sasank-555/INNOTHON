@@ -18,6 +18,7 @@ from app.database import (
 from app.dependencies import get_current_user
 from app.model_runtime import (
     analyze_model_graph,
+    build_model_graph,
     compare_model_network,
     sample_graph_snapshot,
     simulate_model_network,
@@ -155,7 +156,6 @@ def simulate_network(payload: dict) -> ModelServiceResponse:
 
 @app.post("/model/compare-network", response_model=ModelServiceResponse)
 def compare_network(payload: ModelCompareRequest) -> ModelServiceResponse:
-    print("dbg1", payload.network_payload)
     return ModelServiceResponse(
         **compare_model_network(payload.network_payload, payload.readings_payload)
     )
@@ -174,6 +174,14 @@ def get_model_sample_graph() -> dict:
 @app.get("/model/nitw-reference")
 def get_nitw_reference() -> dict:
     return get_network_payload("NITW") or {}
+
+
+@app.get("/model/get-graph")
+def get_model_graph(network_name: str = "NITW") -> dict:
+    payload = get_network_payload(network_name)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Network not found.")
+    return build_model_graph(payload)
 
 
 @app.get("/networks/{network_name}")

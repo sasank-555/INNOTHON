@@ -252,6 +252,11 @@ def seed_nitw_graph_devices() -> None:
                 "sensorId": link["sensor_id"],
                 "sensorType": link.get("measurement", "p_mw"),
                 "unit": "MW" if link.get("measurement") == "p_mw" else "unit",
+                "measurement": link.get("measurement", "p_mw"),
+                "loadId": load.get("id"),
+                "loadName": load.get("name"),
+                "buildingId": building_id,
+                "busId": load.get("bus_id"),
             }
             for load in payload.get("loads", [])
             if load.get("building_id") == building_id
@@ -264,6 +269,8 @@ def seed_nitw_graph_devices() -> None:
                     "sensorId": f"sensor_{building_id}",
                     "sensorType": "p_mw",
                     "unit": "MW",
+                    "measurement": "p_mw",
+                    "buildingId": building_id,
                 }
             ]
 
@@ -908,6 +915,11 @@ def sync_network_building_devices(payload: dict[str, Any], timestamp: str) -> No
                 "sensorId": link["sensor_id"],
                 "sensorType": link.get("measurement", "p_mw"),
                 "unit": "MW" if link.get("measurement") == "p_mw" else "unit",
+                "measurement": link.get("measurement", "p_mw"),
+                "loadId": load.get("id"),
+                "loadName": load.get("name"),
+                "buildingId": building_id,
+                "busId": load.get("bus_id"),
             }
             for load in payload.get("loads", [])
             if load.get("building_id") == building_id
@@ -920,6 +932,8 @@ def sync_network_building_devices(payload: dict[str, Any], timestamp: str) -> No
                     "sensorId": f"sensor_{building_id}",
                     "sensorType": "p_mw",
                     "unit": "MW",
+                    "measurement": "p_mw",
+                    "buildingId": building_id,
                 }
             ]
 

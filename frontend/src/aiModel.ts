@@ -58,7 +58,7 @@ export type ModelOverview = {
   averageAnomalyScore: number
   windowStart: string
   windowEnd: string
-  source: 'synthetic-window'
+  source: 'synthetic-window' | 'live-window'
 }
 
 export type ModelInsights = {
@@ -67,27 +67,37 @@ export type ModelInsights = {
   summary: ModelOverview
 }
 
-const WINDOW_SIZE = 6
+const WINDOW_SIZE = 8
 const STEP_MINUTES = 5
 const POWER_FACTOR = 0.92
 
-export function buildPredictiveInsights(buildings: ModelBuildingInput[]): ModelInsights {
+export function buildPredictiveInsights(
+  buildings: ModelBuildingInput[],
+  sensorHistoryById: Record<string, SensorHistoryPoint[]> = {},
+): ModelInsights {
   const sensorInsights: Record<string, SensorModelInsight> = {}
   const buildingInsights: Record<string, BuildingModelInsight> = {}
-  const windowEnd = new Date()
-  const windowStart = new Date(windowEnd.getTime() - (WINDOW_SIZE - 1) * STEP_MINUTES * 60_000)
+  const now = new Date()
   let riskSensorCount = 0
   let riskScoreTotal = 0
   let buildingRiskCount = 0
+  let earliestWindowStart = now.toISOString()
+  let latestWindowEnd = now.toISOString()
+  let usingLiveWindow = false
 
   for (const building of buildings) {
     const buildingSensorInsights = building.sensors.map((sensor) => {
-      const insight = buildSensorInsight(sensor, windowStart, windowEnd)
+      const insight = buildSensorInsight(sensor, sensorHistoryById[sensor.id], now)
       sensorInsights[sensor.id] = insight
       if (insight.anomalyScore >= 0.55) {
         riskSensorCount += 1
       }
+      if ((sensorHistoryById[sensor.id] ?? []).length > 1) {
+        usingLiveWindow = true
+      }
       riskScoreTotal += insight.anomalyScore
+      if (insight.windowStart < earliestWindowStart) earliestWindowStart = insight.windowStart
+      if (insight.windowEnd > latestWindowEnd) latestWindowEnd = insight.windowEnd
       return insight
     })
 
@@ -108,39 +118,51 @@ export function buildPredictiveInsights(buildings: ModelBuildingInput[]): ModelI
       averageAnomalyScore: buildings.length
         ? Number((riskScoreTotal / Math.max(Object.keys(sensorInsights).length, 1)).toFixed(3))
         : 0,
-      windowStart: windowStart.toISOString(),
-      windowEnd: windowEnd.toISOString(),
-      source: 'synthetic-window',
+      windowStart: earliestWindowStart,
+      windowEnd: latestWindowEnd,
+      source: usingLiveWindow ? 'live-window' : 'synthetic-window',
     },
   }
 }
 
 function buildSensorInsight(
   sensor: ModelSensorInput,
-  windowStart: Date,
+  historyOverride: SensorHistoryPoint[] | undefined,
   windowEnd: Date,
 ): SensorModelInsight {
-  const label = inferLabel(sensor)
-  const history = buildHistory(sensor, label, windowEnd)
+  const history = normalizeHistory(sensor, historyOverride, windowEnd)
   const currentPoint = history[history.length - 1]
-  const previousPoints = history.slice(0, -1)
-  const previousAverage =
-    previousPoints.reduce((total, point) => total + point.powerMw, 0) / Math.max(previousPoints.length, 1)
-  const forecastMw = clamp(currentPoint.powerMw + (currentPoint.powerMw - previousAverage) * 0.55, 0, Math.max(sensor.expectedMw * 2.8, 0.05))
-  const anomalyScore = scoreLabel(label, sensor)
-  const confidence = clamp(0.68 + anomalyScore * 0.28 + stableNoise(sensor.id, 0.0, 0.04), 0.72, 0.99)
+  const earlierPoints = history.slice(0, Math.max(history.length - 3, 1))
+  const recentPoints = history.slice(-3)
+  const previousAverage = average(earlierPoints.map((point) => point.powerMw))
+  const recentAverage = average(recentPoints.map((point) => point.powerMw))
+  const trendMw = recentAverage - previousAverage
+  const volatilityMw = computeVolatility(history.map((point) => point.powerMw))
+  const ratio = sensor.expectedMw > 0 ? currentPoint.powerMw / sensor.expectedMw : 1
+  const label = inferLabel(sensor, currentPoint, ratio, trendMw, volatilityMw)
+  const anomalyScore = scoreLabel(label, sensor, ratio, trendMw, volatilityMw, currentPoint)
+  const forecastMw = clamp(
+    currentPoint.powerMw + trendMw * 1.15 + volatilityMw * 0.28,
+    0,
+    Math.max(sensor.expectedMw * 3, 0.05),
+  )
+  const confidence = clamp(
+    0.66 + anomalyScore * 0.24 + Math.min(history.length / WINDOW_SIZE, 1) * 0.06,
+    0.72,
+    0.99,
+  )
 
   return {
     sensorId: sensor.id,
     label,
-    anomalyScore,
-    confidence,
+    anomalyScore: Number(anomalyScore.toFixed(3)),
+    confidence: Number(confidence.toFixed(3)),
     forecastMw: Number(forecastMw.toFixed(4)),
     currentVoltageV: Number(currentPoint.voltageV.toFixed(1)),
     currentCurrentA: Number(currentPoint.currentA.toFixed(2)),
-    reason: buildReason(label, sensor, currentPoint.powerMw),
-    windowStart: windowStart.toISOString(),
-    windowEnd: windowEnd.toISOString(),
+    reason: buildReason(label, sensor, currentPoint, trendMw, volatilityMw),
+    windowStart: history[0].timestamp,
+    windowEnd: currentPoint.timestamp,
     history,
   }
 }
@@ -171,14 +193,36 @@ function buildBuildingInsight(
     confidence: Number(confidence.toFixed(3)),
     forecastMw: Number(forecastMw.toFixed(3)),
     highRiskSensorCount: highRiskSensors.length,
-    topIssue: topSensor?.reason ?? 'Window is stable against the recent synthetic feed.',
+    topIssue: topSensor?.reason ?? `${building.name} is tracking inside the live operating band.`,
     highlights,
   }
 }
 
-function buildHistory(
+function normalizeHistory(
   sensor: ModelSensorInput,
-  label: ModelSignalLabel,
+  historyOverride: SensorHistoryPoint[] | undefined,
+  windowEnd: Date,
+): SensorHistoryPoint[] {
+  const liveHistory = (historyOverride ?? []).slice(-WINDOW_SIZE)
+  if (liveHistory.length >= WINDOW_SIZE) {
+    return liveHistory
+  }
+
+  const fallbackPoints = buildFallbackHistory(sensor, windowEnd)
+  if (!liveHistory.length) {
+    return fallbackPoints
+  }
+
+  const requiredPrefix = WINDOW_SIZE - liveHistory.length
+  const prefix = fallbackPoints.slice(0, requiredPrefix).map((point, index) => ({
+    ...point,
+    timestamp: new Date(new Date(liveHistory[0].timestamp).getTime() - (requiredPrefix - index) * STEP_MINUTES * 60_000).toISOString(),
+  }))
+  return [...prefix, ...liveHistory].slice(-WINDOW_SIZE)
+}
+
+function buildFallbackHistory(
+  sensor: ModelSensorInput,
   windowEnd: Date,
 ): SensorHistoryPoint[] {
   const checksum = stableNumber(sensor.id)
@@ -191,37 +235,26 @@ function buildHistory(
     const progress = (index + 1) / WINDOW_SIZE
     const drift = (currentMw - expectedMw) * progress
     const oscillation = expectedMw * (0.015 * Math.sin((checksum % 7) + progress * Math.PI * 2))
-    let powerMw = clamp(expectedMw + drift + oscillation, 0.002, Math.max(expectedMw * 2.6, 0.03))
-    let voltageV = 406 + stableNoise(`${sensor.id}-${index}`, -8, 8)
-
-    if (label === 'overload') {
-      powerMw *= 1.18 + progress * 0.45
-      voltageV = 388 + stableNoise(`${sensor.id}-ov-${index}`, -8, 12)
-    } else if (label === 'undervoltage') {
-      powerMw *= 0.96 + progress * 0.08
-      voltageV = 350 + stableNoise(`${sensor.id}-uv-${index}`, -18, 14)
-    } else if (label === 'sensor_fault') {
-      const spike = index % 2 === 0 ? 1.9 : 0.45
-      powerMw *= spike
-      voltageV = 420 + stableNoise(`${sensor.id}-sf-${index}`, -120, 70)
-    } else if (label === 'outage') {
-      powerMw *= 0.14 - progress * 0.08
-      voltageV = 40 + stableNoise(`${sensor.id}-ot-${index}`, -15, 20)
-    }
-
-    const currentA = computeCurrentA(powerMw, voltageV)
+    const powerMw = clamp(expectedMw + drift + oscillation, 0.002, Math.max(expectedMw * 2.6, 0.03))
+    const voltageV = clamp(411 - (powerMw / Math.max(expectedMw, 0.01) - 1) * 32 + stableNoise(`${sensor.id}-${index}`, -8, 8), 140, 455)
     history.push({
       timestamp: timestamp.toISOString(),
-      voltageV: clamp(voltageV, 12, 490),
-      currentA: Number(currentA.toFixed(2)),
-      powerMw: Number(clamp(powerMw, 0, Math.max(expectedMw * 3.2, 0.04)).toFixed(4)),
+      voltageV: Number(voltageV.toFixed(1)),
+      currentA: Number(computeCurrentA(powerMw, voltageV).toFixed(2)),
+      powerMw: Number(powerMw.toFixed(4)),
     })
   }
 
   return history
 }
 
-function inferLabel(sensor: ModelSensorInput): ModelSignalLabel {
+function inferLabel(
+  sensor: ModelSensorInput,
+  currentPoint: SensorHistoryPoint,
+  ratio: number,
+  trendMw: number,
+  volatilityMw: number,
+): ModelSignalLabel {
   if (sensor.reviewDecision === 'normal') {
     return 'stable'
   }
@@ -230,53 +263,97 @@ function inferLabel(sensor: ModelSensorInput): ModelSignalLabel {
     return 'sensor_fault'
   }
 
-  const ratio = sensor.expectedMw > 0 ? sensor.currentMw / sensor.expectedMw : 1
-  if (sensor.comparisonStatus === 'deviation' && ratio < 0.32) {
+  const expectedMw = Math.max(sensor.expectedMw, 0.01)
+  const volatilityRatio = volatilityMw / expectedMw
+
+  if (sensor.reviewDecision === 'anomaly') {
+    return ratio >= 1 ? 'overload' : 'undervoltage'
+  }
+  if (ratio <= 0.2 || currentPoint.voltageV <= 130) {
     return 'outage'
   }
-  if (sensor.comparisonStatus === 'deviation' && ratio > 1.2) {
+  if (volatilityRatio >= 0.34 && ratio > 0.55 && ratio < 1.55) {
+    return 'sensor_fault'
+  }
+  if (ratio >= 1.2 || (trendMw > expectedMw * 0.08 && currentPoint.voltageV < 395)) {
     return 'overload'
   }
-  if (sensor.comparisonStatus === 'deviation' && ratio < 0.82) {
+  if (ratio <= 0.82 || currentPoint.voltageV < 372) {
     return 'undervoltage'
   }
-
-  const checksum = stableNumber(sensor.id)
-  if (sensor.reviewDecision === 'anomaly') {
-    return checksum % 2 === 0 ? 'overload' : 'undervoltage'
+  if (sensor.comparisonStatus === 'deviation' && ratio < 0.35) {
+    return 'outage'
   }
-  if (checksum % 17 === 0) {
-    return 'sensor_fault'
+  if (sensor.comparisonStatus === 'deviation' && ratio > 1.12) {
+    return 'overload'
   }
   return 'stable'
 }
 
-function scoreLabel(label: ModelSignalLabel, sensor: ModelSensorInput) {
+function scoreLabel(
+  label: ModelSignalLabel,
+  sensor: ModelSensorInput,
+  ratio: number,
+  trendMw: number,
+  volatilityMw: number,
+  currentPoint: SensorHistoryPoint,
+) {
   const base = {
-    stable: 0.18,
+    stable: 0.14,
     overload: 0.81,
-    undervoltage: 0.74,
-    sensor_fault: 0.69,
-    outage: 0.92,
+    undervoltage: 0.72,
+    sensor_fault: 0.68,
+    outage: 0.94,
   }[label]
-  const deviationRatio = sensor.expectedMw > 0 ? Math.abs(sensor.currentMw - sensor.expectedMw) / sensor.expectedMw : 0
-  const adjusted = base + Math.min(deviationRatio * 0.22, 0.18)
-  return Number(clamp(adjusted, 0.12, 0.99).toFixed(3))
+  const deviationRatio = Math.abs(ratio - 1)
+  const expectedMw = Math.max(sensor.expectedMw, 0.01)
+  const volatilityRatio = volatilityMw / expectedMw
+  const trendRatio = Math.abs(trendMw) / expectedMw
+  const voltagePenalty = currentPoint.voltageV < 370 ? 0.06 : 0
+  const adjusted = base + Math.min(deviationRatio * 0.18, 0.16) + Math.min(volatilityRatio * 0.18, 0.12) + Math.min(trendRatio * 0.12, 0.08) + voltagePenalty
+  return clamp(adjusted, 0.12, 0.99)
 }
 
-function buildReason(label: ModelSignalLabel, sensor: ModelSensorInput, powerMw: number) {
-  const roundedPower = powerMw.toFixed(3)
-  if (label === 'overload') return `Window trend shows sustained demand growth and projected feeder stress near ${roundedPower} MW.`
-  if (label === 'undervoltage') return `Voltage profile softens across the window while demand stays active, suggesting undervoltage pressure.`
-  if (label === 'sensor_fault') return `The recent signal pattern is inconsistent with neighboring steps, so the model suspects instrumentation noise or packet issues.`
-  if (label === 'outage') return `Power collapses through the latest steps, which the model reads as an outage-like event.`
+function buildReason(
+  label: ModelSignalLabel,
+  sensor: ModelSensorInput,
+  currentPoint: SensorHistoryPoint,
+  trendMw: number,
+  volatilityMw: number,
+) {
+  const roundedPower = currentPoint.powerMw.toFixed(3)
+  const roundedVoltage = currentPoint.voltageV.toFixed(0)
+  if (label === 'overload') {
+    return `Live demand is climbing toward ${roundedPower} MW and voltage is compressing to ${roundedVoltage} V, so the node is trending into overload risk.`
+  }
+  if (label === 'undervoltage') {
+    return `The node is drawing below its expected band while voltage is sitting near ${roundedVoltage} V, which looks like undervoltage stress.`
+  }
+  if (label === 'sensor_fault') {
+    return `Recent packets are jittering by ${volatilityMw.toFixed(3)} MW across the live window, so the stream looks more like sensor noise than load behaviour.`
+  }
+  if (label === 'outage') {
+    return `Power has collapsed to ${roundedPower} MW in the latest packet, which the model treats as an outage-like event.`
+  }
   return sensor.comparisonStatus === 'match'
-    ? 'Recent history looks stable and aligned with the simulated operating envelope.'
-    : 'Recent window remains inside a normal learned band despite short-term movement.'
+    ? `Recent packets remain close to the expected band and the short-horizon trend is ${trendMw >= 0 ? 'rising' : 'falling'} gently.`
+    : 'Recent live packets are moving, but the model still keeps the node inside its normal operating envelope.'
 }
 
 function computeCurrentA(powerMw: number, voltageV: number) {
   return (powerMw * 1_000_000) / (Math.sqrt(3) * Math.max(voltageV, 1) * POWER_FACTOR)
+}
+
+function computeVolatility(values: number[]) {
+  if (values.length <= 1) return 0
+  const mean = average(values)
+  const variance = average(values.map((value) => (value - mean) ** 2))
+  return Math.sqrt(variance)
+}
+
+function average(values: number[]) {
+  if (!values.length) return 0
+  return values.reduce((total, value) => total + value, 0) / values.length
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -124,11 +124,37 @@ def ingest_telemetry(
     if device is None or device.get("device_auth_token") != device_auth_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device credentials.")
 
+    manifest_index = _sensor_manifest_index(device)
+    unknown_sensor_ids = sorted(
+        {
+            reading.sensorId
+            for reading in readings
+            if reading.sensorId not in manifest_index
+        }
+    )
+    if unknown_sensor_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown sensor ids for {hardware_id}: {', '.join(unknown_sensor_ids)}",
+        )
+
     telemetry_docs = []
     for reading in readings:
-        metadata = {}
+        manifest_item = manifest_index.get(reading.sensorId, {})
+        metadata = {
+            "buildingHardwareId": hardware_id,
+            "nodeKind": device.get("node_kind"),
+        }
         if signal_strength is not None:
             metadata["signalStrength"] = signal_strength
+        if manifest_item.get("loadId"):
+            metadata["loadId"] = manifest_item["loadId"]
+        if manifest_item.get("buildingId"):
+            metadata["buildingId"] = manifest_item["buildingId"]
+        if manifest_item.get("measurement"):
+            metadata["measurement"] = manifest_item["measurement"]
+        if manifest_item.get("busId"):
+            metadata["busId"] = manifest_item["busId"]
         telemetry_docs.append(
             {
                 "sold_device_id": str(device["_id"]),
@@ -186,26 +212,7 @@ def list_device_inventory() -> list[DeviceSummary]:
 def get_device_summary(device_id: str, user_id: str, include_token: bool = False) -> DeviceSummary:
     ensure_device_access(device_id, user_id)
     device = sold_devices_collection().find_one({"_id": parse_object_id(device_id)})
-    reading_rows = list(
-        sensor_readings_collection()
-        .find({"sold_device_id": device_id})
-        .sort([("server_received_at", -1), ("_id", -1)])
-        .limit(10)
-    )
-
-    latest_readings = [
-        ReadingResponse(
-            sensorId=row["sensor_id"],
-            sensorType=row["sensor_type"],
-            value=row["reading_value"],
-            unit=row["unit"],
-            relayState=row["relay_state"],
-            espTimestamp=row["esp_timestamp"],
-            serverReceivedAt=row["server_received_at"],
-            metadata=row["metadata_json"] if row["metadata_json"] else {},
-        )
-        for row in reading_rows
-    ]
+    latest_readings = _latest_readings_for_device(device)
     return build_device_summary(device, include_token=include_token, latest_readings=latest_readings)
 
 
@@ -244,3 +251,63 @@ def ensure_device_access(device_id: str, user_id: str) -> None:
         device = None
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found for this user.")
+
+
+def _sensor_manifest_index(device: dict) -> dict[str, dict]:
+    manifest_index: dict[str, dict] = {}
+    for item in device.get("sensor_manifest", []):
+        sensor_id = item.get("sensorId")
+        if sensor_id:
+            manifest_index[str(sensor_id)] = dict(item)
+    return manifest_index
+
+
+def _latest_readings_for_device(device: dict) -> list[ReadingResponse]:
+    device_id = str(device["_id"])
+    manifest_index = _sensor_manifest_index(device)
+    sensor_ids = list(manifest_index)
+    if not sensor_ids:
+        return []
+
+    pipeline = [
+        {
+            "$match": {
+                "sold_device_id": device_id,
+                "sensor_id": {"$in": sensor_ids},
+            }
+        },
+        {"$sort": {"server_received_at": -1, "_id": -1}},
+        {
+            "$group": {
+                "_id": "$sensor_id",
+                "sensor_type": {"$first": "$sensor_type"},
+                "reading_value": {"$first": "$reading_value"},
+                "unit": {"$first": "$unit"},
+                "relay_state": {"$first": "$relay_state"},
+                "esp_timestamp": {"$first": "$esp_timestamp"},
+                "server_received_at": {"$first": "$server_received_at"},
+                "metadata_json": {"$first": "$metadata_json"},
+            }
+        },
+    ]
+    rows = list(sensor_readings_collection().aggregate(pipeline))
+    rows_by_sensor_id = {str(row["_id"]): row for row in rows}
+
+    responses: list[ReadingResponse] = []
+    for sensor_id in sensor_ids:
+        row = rows_by_sensor_id.get(sensor_id)
+        if row is None:
+            continue
+        responses.append(
+            ReadingResponse(
+                sensorId=sensor_id,
+                sensorType=row.get("sensor_type") or manifest_index[sensor_id].get("sensorType", "unknown"),
+                value=row["reading_value"],
+                unit=row.get("unit") or manifest_index[sensor_id].get("unit", "unit"),
+                relayState=row.get("relay_state"),
+                espTimestamp=row.get("esp_timestamp"),
+                serverReceivedAt=row["server_received_at"],
+                metadata=row.get("metadata_json") or {},
+            )
+        )
+    return responses
