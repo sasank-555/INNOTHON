@@ -1,7 +1,9 @@
 from __future__ import annotations
+import asyncio
+import contextlib
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -15,7 +17,8 @@ from app.database import (
     sync_network_payload,
     upsert_network_component,
 )
-from app.dependencies import get_current_user
+from app.dependencies import authenticate_access_token, get_current_user
+from app.live_feed import live_feed_broker
 from app.model_runtime import (
     analyze_model_graph,
     build_model_graph,
@@ -24,6 +27,8 @@ from app.model_runtime import (
     simulate_model_network,
 )
 from app.mqtt_service import mqtt_bridge
+from app.replay_service import get_training_replay_window
+from app.sensor_simulator import sensor_simulator
 from app.schemas import (
     AuthResponse,
     ClaimDeviceRequest,
@@ -63,23 +68,58 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     if getattr(settings, "model_only_mode", False):
         return
     initialize_database()
+    live_feed_broker.start(asyncio.get_running_loop())
     mqtt_bridge.start()
+    await sensor_simulator.start()
 
 
 @app.on_event("shutdown")
-def on_shutdown() -> None:
+async def on_shutdown() -> None:
     if getattr(settings, "model_only_mode", False):
         return
+    await sensor_simulator.stop()
+    await live_feed_broker.stop()
     mqtt_bridge.stop()
 
 
 @app.get("/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.websocket("/ws/live-readings")
+async def live_readings_socket(websocket: WebSocket, token: str | None = None) -> None:
+    if token is None:
+        await websocket.close(code=4401)
+        return
+
+    try:
+        user = authenticate_access_token(token)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+
+    await live_feed_broker.connect(websocket)
+    try:
+        await websocket.send_json(
+            {
+                "type": "connection_ready",
+                "email": user["email"],
+                "serverTimestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        live_feed_broker.disconnect(websocket)
+        with contextlib.suppress(Exception):
+            await websocket.close()
 
 
 @app.get("/mqtt/status", response_model=MqttStatusResponse)
@@ -169,6 +209,16 @@ def analyze_graph(payload: ModelGraphAnalyzeRequest) -> ModelServiceResponse:
 @app.get("/model/sample-graph")
 def get_model_sample_graph() -> dict:
     return sample_graph_snapshot()
+
+
+@app.get("/model/training-replay-window")
+def get_model_training_replay_window(cursor: int | None = None, window_size: int = 8) -> dict:
+    try:
+        return get_training_replay_window(cursor=cursor, window_size=window_size)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
 
 
 @app.get("/model/nitw-reference")

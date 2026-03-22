@@ -18,14 +18,16 @@ import {
   fetchInventory,
   fetchNitwReference,
   loginUser,
+  openLiveReadingsSocket,
   registerUser,
   syncNetwork,
   type DeviceRecord,
+  type LiveFeedEvent,
   type NitwReference,
 } from './serviceX'
 
 type AuthMode = 'login' | 'register'
-type VisualStatus = 'unclaimed' | 'healthy' | 'deviation'
+type VisualStatus = 'unclaimed' | 'healthy' | 'deviation' | 'inactive'
 type SensorReviewDecision = 'normal' | 'anomaly'
 type Session = { token: string; email: string }
 type ComparisonRecord = {
@@ -44,6 +46,7 @@ type BuildingSensor = {
   name: string
   sensorId: string
   sensorIndex: number
+  isActive: boolean
   expectedMw: number
   currentMw: number
   comparedExpectedMw: number | null
@@ -83,7 +86,7 @@ type LiveNotification = {
 const SESSION_KEY = 'innothon-session'
 const CAMPUS_CENTER: LatLngExpression = [17.98369646253154, 79.53082786635768]
 const PUMP_STATION: LatLngExpression = [17.98369646253154, 79.53082786635768]
-const LIVE_SIMULATION_INTERVAL_MS = 2500
+const LIVE_COMPARE_DEBOUNCE_MS = 250
 const SENSOR_HISTORY_LIMIT = 12
 const PUMP_ICON = divIcon({
   className: 'pump-marker',
@@ -125,6 +128,8 @@ function App() {
   const [draftSensor, setDraftSensor] = useState<DraftSensor | null>(null)
   const [saveSensorBusy, setSaveSensorBusy] = useState(false)
   const [saveSensorError, setSaveSensorError] = useState('')
+  const [sensorToggleBusyId, setSensorToggleBusyId] = useState<string | null>(null)
+  const [sensorToggleError, setSensorToggleError] = useState('')
   const liveReadingsRef = useRef<Record<string, number>>({})
   const sensorHistoryRef = useRef<Record<string, SensorHistoryPoint[]>>({})
 
@@ -156,44 +161,73 @@ function App() {
     if (!session || !nitwReference) return
 
     let cancelled = false
-    let timeoutId: number | undefined
+    let socket: WebSocket | null = null
+    let reconnectTimeoutId: number | undefined
+    let compareTimeoutId: number | undefined
 
-    const runLiveCycle = async () => {
-      const cycleTimestamp = new Date().toISOString()
-      const nextReadings = simulateRealtimeReadings(nitwReference, liveReadingsRef.current, Date.now())
-      const nextHistory = advanceSensorHistory(nitwReference, nextReadings, sensorHistoryRef.current, cycleTimestamp)
-      liveReadingsRef.current = nextReadings
-      sensorHistoryRef.current = nextHistory
-
-      if (!cancelled) {
-        setSimulatedReadings(nextReadings)
-        setSensorHistory(nextHistory)
-        setSimulationUpdatedAt(cycleTimestamp)
-      }
-
-      try {
-        const compare = await compareNitwNetwork(session.token, nitwReference, nextReadings)
-        if (cancelled) return
-        setCompareByElementId(mapComparisonsByElementId(compare.comparisons ?? []))
-        setSupervised(true)
-        setPageError('')
-      } catch (error) {
-        if (cancelled) return
-        setPageError(error instanceof Error ? `Live supervision paused: ${error.message}` : 'Live supervision paused')
-      } finally {
-        if (!cancelled) {
-          timeoutId = window.setTimeout(() => {
-            void runLiveCycle()
-          }, LIVE_SIMULATION_INTERVAL_MS)
+    const scheduleCompare = () => {
+      if (compareTimeoutId) window.clearTimeout(compareTimeoutId)
+      compareTimeoutId = window.setTimeout(async () => {
+        try {
+          const compare = await compareNitwNetwork(
+            session.token,
+            filterActiveNetworkPayload(nitwReference),
+            liveReadingsRef.current,
+          )
+          if (cancelled) return
+          setCompareByElementId(mapComparisonsByElementId(compare.comparisons ?? []))
+          setSupervised(true)
+          setPageError('')
+        } catch (error) {
+          if (cancelled) return
+          setPageError(error instanceof Error ? `Live supervision paused: ${error.message}` : 'Live supervision paused')
         }
+      }, LIVE_COMPARE_DEBOUNCE_MS)
+    }
+
+    const connectLiveFeed = () => {
+      socket = openLiveReadingsSocket(session.token)
+      socket.onopen = () => {
+        if (!cancelled) setPageError('')
+      }
+      socket.onmessage = (event) => {
+        let payload: LiveFeedEvent
+        try {
+          payload = JSON.parse(event.data) as LiveFeedEvent
+        } catch {
+          return
+        }
+        if (payload.type !== 'telemetry_packet') return
+        const nextState = applyLiveTelemetryPacket(
+          nitwReference,
+          payload,
+          liveReadingsRef.current,
+          sensorHistoryRef.current,
+        )
+        liveReadingsRef.current = nextState.readings
+        sensorHistoryRef.current = nextState.history
+        if (!cancelled) {
+          setSimulatedReadings(nextState.readings)
+          setSensorHistory(nextState.history)
+          setSimulationUpdatedAt(nextState.updatedAt)
+        }
+        scheduleCompare()
+      }
+      socket.onclose = () => {
+        if (cancelled) return
+        reconnectTimeoutId = window.setTimeout(() => {
+          connectLiveFeed()
+        }, 1500)
       }
     }
 
-    void runLiveCycle()
+    connectLiveFeed()
 
     return () => {
       cancelled = true
-      if (timeoutId) window.clearTimeout(timeoutId)
+      if (compareTimeoutId) window.clearTimeout(compareTimeoutId)
+      if (reconnectTimeoutId) window.clearTimeout(reconnectTimeoutId)
+      socket?.close()
     }
   }, [nitwReference, session])
 
@@ -217,38 +251,48 @@ function App() {
       const readingBySensorId = new Map((claimedDevice?.latestReadings ?? []).map((r) => [r.sensorId, r]))
       const sensors = (loadsByBuildingId.get(building.id) ?? []).map((load) => {
         const sensorId = linkByElementId.get(load.id) ?? `sensor_${load.id}`
+        const isActive = load.is_active !== false
         const latest = readingBySensorId.get(sensorId)
-        const currentMw = typeof simulatedReadings[sensorId] === 'number'
-          ? simulatedReadings[sensorId]
-          : typeof latest?.value === 'number'
-            ? latest.value
-            : fakeReadingForLoad(load)
-        const comparison = compareByElementId[load.id]
-        const reviewDecision = reviewBySensorId[load.id] ?? null
-        let status: VisualStatus = 'unclaimed'
-        if (claimedDevice && supervised) status = isProblemComparisonStatus(comparison?.status ?? null) ? 'deviation' : 'healthy'
-        if (reviewDecision === 'normal') status = 'healthy'
+        const currentMw = !isActive
+          ? 0
+          : typeof simulatedReadings[sensorId] === 'number'
+            ? simulatedReadings[sensorId]
+            : typeof latest?.value === 'number'
+              ? latest.value
+              : fakeReadingForLoad(load)
+        const comparison = isActive ? compareByElementId[load.id] : undefined
+        const reviewDecision = isActive ? reviewBySensorId[load.id] ?? null : null
+        let status: VisualStatus = 'inactive'
+        if (isActive) {
+          status = 'unclaimed'
+          if (claimedDevice && supervised) status = isProblemComparisonStatus(comparison?.status ?? null) ? 'deviation' : 'healthy'
+          if (reviewDecision === 'normal') status = 'healthy'
+        }
         return {
           id: load.id,
           name: load.name,
           sensorId,
           sensorIndex: load.sensor_index ?? extractSensorIndex(load.id),
-          expectedMw: load.p_mw ?? 0,
+          isActive,
+          expectedMw: isActive ? load.p_mw ?? 0 : 0,
           currentMw,
           comparedExpectedMw: comparison?.expected ?? null,
           comparedActualMw: comparison?.actual ?? null,
           deltaMw: comparison?.delta ?? null,
-          comparisonStatus: comparison?.status ?? null,
+          comparisonStatus: isActive ? comparison?.status ?? null : 'inactive',
           reviewDecision,
           status,
         }
       }).sort((a, b) => a.sensorIndex - b.sensorIndex || a.name.localeCompare(b.name))
-      const buildingStatus: VisualStatus =
-        claimedDevice && supervised && sensors.some((s) => s.status === 'deviation')
-          ? 'deviation'
-          : claimedDevice && supervised
-            ? 'healthy'
-            : 'unclaimed'
+      const hasActiveSensors = sensors.some((sensor) => sensor.isActive)
+      let buildingStatus: VisualStatus = 'unclaimed'
+      if (claimedDevice && !hasActiveSensors) {
+        buildingStatus = 'inactive'
+      } else if (claimedDevice && supervised && sensors.some((sensor) => sensor.status === 'deviation')) {
+        buildingStatus = 'deviation'
+      } else if (claimedDevice && supervised) {
+        buildingStatus = 'healthy'
+      }
       return {
         id: building.id,
         hardwareId,
@@ -274,8 +318,8 @@ function App() {
       name: building.name,
       expectedMw: building.expectedMw,
       currentMw: building.currentMw,
-      sensors: building.sensors.map((sensor) => ({
-        id: sensor.id,
+      sensors: building.sensors.filter((sensor) => sensor.isActive).map((sensor) => ({
+        id: sensor.sensorId,
         name: sensor.name,
         expectedMw: sensor.expectedMw,
         currentMw: sensor.currentMw,
@@ -290,7 +334,7 @@ function App() {
   const buildings = useMemo<CampusBuilding[]>(() => baseBuildings.map((building) => {
     const nextSensors = building.sensors.map((sensor) => ({
       ...sensor,
-      status: resolveSensorVisualStatus(sensor, modelInsights.sensors[sensor.id]),
+      status: resolveSensorVisualStatus(sensor, modelInsights.sensors[sensor.sensorId]),
     }))
     return {
       ...building,
@@ -299,6 +343,8 @@ function App() {
     }
   }), [baseBuildings, modelInsights])
   const selectedBuilding = buildings.find((b) => b.id === selectedBuildingId) ?? buildings[0] ?? null
+  const selectedBuildingHasActiveSensors = Boolean(selectedBuilding?.sensors.some((sensor) => sensor.isActive))
+  const selectedBuildingActiveSensorCount = selectedBuilding?.sensors.filter((sensor) => sensor.isActive).length ?? 0
   const selectedBuildingModel = selectedBuilding ? modelInsights.buildings[selectedBuilding.id] : null
   const stats = useMemo(() => ({
     claimed: buildings.filter((b) => b.claimedByCurrentUser).length,
@@ -306,11 +352,12 @@ function App() {
     red: buildings.filter((b) => b.status === 'deviation').length,
     green: buildings.filter((b) => b.status === 'healthy').length,
     sensors: buildings.reduce((total, b) => total + b.sensorCount, 0),
+    activeSensors: buildings.reduce((total, b) => total + b.sensors.filter((sensor) => sensor.isActive).length, 0),
   }), [buildings])
   const liveNotifications = useMemo<LiveNotification[]>(() => {
     const alerts = buildings.flatMap((building) => building.sensors.flatMap((sensor) => {
-      const sensorModel = modelInsights.sensors[sensor.id]
-      const lastPacket = sensorHistory[sensor.id]?.[sensorHistory[sensor.id].length - 1]
+      const sensorModel = modelInsights.sensors[sensor.sensorId]
+      const lastPacket = sensorHistory[sensor.sensorId]?.[sensorHistory[sensor.sensorId].length - 1]
       const shouldNotify = sensor.status === 'deviation' || (sensorModel && sensorModel.label !== 'stable' && sensorModel.anomalyScore >= 0.55)
       if (!shouldNotify || !sensorModel) return []
       const level: NotificationLevel =
@@ -336,20 +383,22 @@ function App() {
       ? [{
         id: 'live-stream-ok',
         level: 'info',
-        title: 'All sensor nodes streaming',
-        detail: `${stats.sensors} nodes reported into the live simulation window with no active anomalies.`,
+        title: stats.activeSensors ? 'All sensor nodes streaming' : 'All sensors are turned off',
+        detail: stats.activeSensors
+          ? `${stats.activeSensors} active nodes reported through the live sensor stream with no active anomalies.`
+          : 'No active sensors are currently streaming.',
         timestamp: simulationUpdatedAt,
       }]
       : []
-  }, [buildings, modelInsights, sensorHistory, simulationUpdatedAt, stats.sensors])
+  }, [buildings, modelInsights, sensorHistory, simulationUpdatedAt, stats.activeSensors])
 
   async function loadDashboard(token: string, runSupervision: boolean) {
     setPageBusy(true)
     setPageError('')
     try {
       const [inventoryData, claimedData, nitwData] = await Promise.all([fetchInventory(token), fetchClaimedDevices(token), fetchNitwReference(token)])
+      const seededAt = simulationUpdatedAt || new Date().toISOString()
       const nextSeededReadings = seedSimulatedReadings(claimedData, nitwData, liveReadingsRef.current)
-      const seededAt = new Date().toISOString()
       const nextSensorHistory = seedSensorHistory(nitwData, nextSeededReadings, sensorHistoryRef.current, seededAt)
       liveReadingsRef.current = nextSeededReadings
       sensorHistoryRef.current = nextSensorHistory
@@ -418,8 +467,8 @@ function App() {
     try {
       const claimedData = claimedDevices.length ? claimedDevices : await fetchClaimedDevices(session.token)
       const nitwData = nitwReference ?? await fetchNitwReference(session.token)
+      const seededAt = simulationUpdatedAt || new Date().toISOString()
       const nextSeededReadings = seedSimulatedReadings(claimedData, nitwData, liveReadingsRef.current)
-      const seededAt = new Date().toISOString()
       const nextSensorHistory = seedSensorHistory(nitwData, nextSeededReadings, sensorHistoryRef.current, seededAt)
       liveReadingsRef.current = nextSeededReadings
       sensorHistoryRef.current = nextSensorHistory
@@ -504,17 +553,35 @@ function App() {
     }
   }
 
+  async function handleSetSensorActive(sensorId: string, nextIsActive: boolean) {
+    if (!session || !nitwReference || !selectedBuilding) return
+    setSensorToggleBusyId(sensorId)
+    setSensorToggleError('')
+    try {
+      await syncNetwork(session.token, buildNetworkWithSensorActivity(nitwReference, sensorId, nextIsActive))
+      await loadDashboard(session.token, supervised)
+      setSelectedBuildingId(selectedBuilding.id)
+      setShowBuildingModal(true)
+    } catch (error) {
+      setSensorToggleError(error instanceof Error ? error.message : `Failed to turn ${nextIsActive ? 'on' : 'off'} sensor`)
+    } finally {
+      setSensorToggleBusyId(null)
+    }
+  }
+
   function openBuildingModal(buildingId: string) {
     setSelectedBuildingId(buildingId)
     setShowBuildingModal(true)
     setAddSensorMode(false)
     setSaveSensorError('')
+    setSensorToggleError('')
   }
 
   function closeBuildingModal() {
     setShowBuildingModal(false)
     setAddSensorMode(false)
     setSaveSensorError('')
+    setSensorToggleError('')
   }
 
   function markSensorReview(sensorId: string, decision: SensorReviewDecision) {
@@ -542,6 +609,8 @@ function App() {
     setSelectedBuildingId('')
     setSupervised(false)
     setReviewBySensorId({})
+    setSensorToggleBusyId(null)
+    setSensorToggleError('')
     setShowBuildingModal(false)
     setAddBuildingMode(false)
     setDraftBuilding(null)
@@ -551,7 +620,7 @@ function App() {
 
   function renderClaimBox(building: CampusBuilding) {
     if (building.claimedByCurrentUser) {
-      return <div className="claim-success">{supervised ? 'Claimed by you. Live sensor simulation and AI supervision are active.' : 'Claimed by you. Live sensor simulation is starting.'}</div>
+      return <div className="claim-success">{supervised ? 'Claimed by you. Live sensor stream and AI supervision are active.' : 'Claimed by you. Live sensor stream is starting.'}</div>
     }
     return (
       <div className="claim-box">
@@ -702,7 +771,7 @@ function App() {
             <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
             <div className="metric"><span>Status</span><strong>{pageBusy ? 'Refreshing...' : supervised ? 'Live supervised' : 'Starting live feed'}</strong></div>
-            <div className="metric"><span>AI window</span><strong>{modelInsights.summary.windowSize} steps</strong></div>
+            <div className="metric"><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
             <div className="metric"><span>AI source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
             <div className="metric"><span>Last sensor tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
           </article>
@@ -727,7 +796,7 @@ function App() {
             <div className="building-list">
               {buildings.map((building) => (
                 <button className="building-row" key={building.id} onClick={() => setSelectedBuildingId(building.id)} type="button">
-                  <div><strong>{building.name}</strong><span>{building.sensorCount} sensors • {building.expectedMw.toFixed(2)} MW expected</span></div>
+                  <div><strong>{building.name}</strong><span>{building.sensors.filter((sensor) => sensor.isActive).length}/{building.sensorCount} active sensors | {building.expectedMw.toFixed(2)} MW expected</span></div>
                   <span className={`mini-badge status-${building.status}`}>{statusLabel(building.status)}</span>
                 </button>
               ))}
@@ -743,17 +812,17 @@ function App() {
               <div className="detail-list">
                 <div><span>Hardware ID</span><strong>{selectedBuilding.hardwareId}</strong></div>
                 <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
-                <div><span>Sensors</span><strong>{selectedBuilding.sensorCount}</strong></div>
+                <div><span>Sensors active</span><strong>{selectedBuildingActiveSensorCount} / {selectedBuilding.sensorCount}</strong></div>
                 <div><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
                 <div><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
-                <div><span>AI top label</span><strong>{selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : 'Waiting'}</strong></div>
-                <div><span>AI risk score</span><strong>{selectedBuildingModel ? formatPercent(selectedBuildingModel.anomalyScore) : '--'}</strong></div>
-                <div><span>Forecast next 30m</span><strong>{selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
+                <div><span>AI top label</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? modelLabel(selectedBuildingModel.label) : selectedBuildingHasActiveSensors ? 'Waiting' : 'Inactive'}</strong></div>
+                <div><span>AI risk score</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? formatPercent(selectedBuildingModel.anomalyScore) : '--'}</strong></div>
+                <div><span>Forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
               </div>
               <div className="node-preview-list">
                 {selectedBuilding.sensors.slice(0, 5).map((sensor) => {
-                  const sensorModel = modelInsights.sensors[sensor.id]
-                  const latestPoint = sensorHistory[sensor.id]?.[sensorHistory[sensor.id].length - 1]
+                  const sensorModel = modelInsights.sensors[sensor.sensorId]
+                  const latestPoint = sensorHistory[sensor.sensorId]?.[sensorHistory[sensor.sensorId].length - 1]
                   return (
                     <article className={`node-preview node-preview--${sensor.status}`} key={sensor.id}>
                       <div className="node-preview__header">
@@ -761,14 +830,14 @@ function App() {
                           <strong>{sensor.name}</strong>
                           <span>{sensor.sensorId}</span>
                         </div>
-                        <span className={`mini-badge model-badge model-badge--${sensorModel ? modelToneClass(sensorModel.label) : 'stable'}`}>
-                          {sensorModel ? modelLabel(sensorModel.label) : 'Streaming'}
+                        <span className={sensor.isActive ? `mini-badge model-badge model-badge--${sensorModel ? modelToneClass(sensorModel.label) : 'stable'}` : 'mini-badge status-inactive'}>
+                          {sensor.isActive ? sensorModel ? modelLabel(sensorModel.label) : 'Streaming' : 'Turned Off'}
                         </span>
                       </div>
                       <div className="node-preview__metrics">
                         <span>{sensor.currentMw.toFixed(3)} MW</span>
-                        <span>{latestPoint ? `${latestPoint.voltageV.toFixed(0)} V` : '--'}</span>
-                        <span>{latestPoint ? formatRelativeTick(latestPoint.timestamp) : 'Awaiting packet'}</span>
+                        <span>{sensor.isActive && latestPoint ? `${latestPoint.voltageV.toFixed(0)} V` : '--'}</span>
+                        <span>{sensor.isActive && latestPoint ? formatRelativeTick(latestPoint.timestamp) : 'Sensor off'}</span>
                       </div>
                     </article>
                   )
@@ -788,7 +857,7 @@ function App() {
               <div>
                 <p className="kicker">Building View</p>
                 <h2>{selectedBuilding.name}</h2>
-                <p className="header-copy">{selectedBuilding.sensorCount} internal sensors on {selectedBuilding.busId}</p>
+                <p className="header-copy">{selectedBuildingActiveSensorCount} active of {selectedBuilding.sensorCount} internal sensors on {selectedBuilding.busId}</p>
               </div>
               <div className="building-modal__actions">
                 <span className={`status-badge status-${selectedBuilding.status}`}>{statusLabel(selectedBuilding.status)}</span>
@@ -800,12 +869,13 @@ function App() {
               <div className="metric"><span>Expected aggregate</span><strong>{selectedBuilding.expectedMw.toFixed(2)} MW</strong></div>
               <div className="metric"><span>Current aggregate</span><strong>{selectedBuilding.currentMw.toFixed(2)} MW</strong></div>
               <div className="metric"><span>Anomalous sensors</span><strong>{selectedBuilding.sensors.filter((sensor) => sensor.status === 'deviation').length}</strong></div>
-              <div className="metric"><span>Claim count</span><strong>{selectedBuilding.claimCount}</strong></div>
-              <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingModel?.highRiskSensorCount ?? 0}</strong></div>
-              <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
+              <div className="metric"><span>Active sensors</span><strong>{selectedBuildingActiveSensorCount}</strong></div>
+              <div className="metric"><span>AI high-risk sensors</span><strong>{selectedBuildingHasActiveSensors ? selectedBuildingModel?.highRiskSensorCount ?? 0 : 0}</strong></div>
+              <div className="metric"><span>AI forecast next 30m</span><strong>{selectedBuildingHasActiveSensors && selectedBuildingModel ? `${selectedBuildingModel.forecastMw.toFixed(2)} MW` : '--'}</strong></div>
             </div>
 
             <div className="building-modal__toolbar"><button className="ghost-button ghost-button--accent" onClick={beginAddSensorMode} type="button">Add node</button></div>
+            {sensorToggleError ? <div className="form-error">{sensorToggleError}</div> : null}
 
             {addSensorMode && draftSensor ? (
               <article className="panel panel--composer modal-composer">
@@ -834,10 +904,10 @@ function App() {
                     <div><span>Bus</span><strong>{selectedBuilding.busId}</strong></div>
                     <div><span>Coordinates</span><strong>{selectedBuilding.lat.toFixed(6)}, {selectedBuilding.lng.toFixed(6)}</strong></div>
                     <div><span>Supervision</span><strong>{supervised ? 'Live' : 'Starting'}</strong></div>
-                    <div><span>AI window</span><strong>{modelInsights.summary.windowSize} samples</strong></div>
+                    <div><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
                     <div><span>Model source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
                     <div><span>Latest tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
-                    <div><span>Top issue</span><strong>{selectedBuildingModel?.topIssue ?? 'Window stable'}</strong></div>
+                    <div><span>Top issue</span><strong>{selectedBuildingHasActiveSensors ? selectedBuildingModel?.topIssue ?? 'Window stable' : 'All sensors turned off'}</strong></div>
                   </div>
                   {renderClaimBox(selectedBuilding)}
                 </article>
@@ -848,15 +918,15 @@ function App() {
                   <p className="kicker">All Internal Sensors</p>
                   <div className="sensor-list sensor-list--modal">
                     {selectedBuilding.sensors.map((sensor) => {
-                      const sensorModel = modelInsights.sensors[sensor.id]
-                      const latestPoint = sensorHistory[sensor.id]?.[sensorHistory[sensor.id].length - 1]
+                      const sensorModel = modelInsights.sensors[sensor.sensorId]
+                      const latestPoint = sensorHistory[sensor.sensorId]?.[sensorHistory[sensor.sensorId].length - 1]
                       return (
                         <article className={`sensor-card sensor-card--modal sensor-card--${sensor.status}`} key={sensor.id}>
                           <div className="sensor-card__header sensor-card__header--split">
                             <div><strong>{sensor.name}</strong><span>{sensor.sensorId}</span></div>
                             <div className="sensor-card__badges">
-                              <span className={`mini-badge status-${sensor.status}`}>{comparisonLabel(sensor.comparisonStatus)}</span>
-                              {sensorModel ? <span className={`mini-badge model-badge model-badge--${modelToneClass(sensorModel.label)}`}>{modelLabel(sensorModel.label)}</span> : null}
+                              <span className={`mini-badge status-${sensor.status}`}>{sensor.isActive ? comparisonLabel(sensor.comparisonStatus) : 'Turned off'}</span>
+                              {sensor.isActive && sensorModel ? <span className={`mini-badge model-badge model-badge--${modelToneClass(sensorModel.label)}`}>{modelLabel(sensorModel.label)}</span> : null}
                             </div>
                           </div>
                           <div className="sensor-card__metrics sensor-card__metrics--grid">
@@ -869,16 +939,29 @@ function App() {
                           </div>
                           <div className="sensor-stream-row">
                             <span className={`signal-dot signal-dot--${sensor.status}`} />
-                            <span>{latestPoint ? `Live packet ${formatClock(latestPoint.timestamp)}` : 'Awaiting first packet'}</span>
-                            <span>{latestPoint ? `${latestPoint.voltageV.toFixed(1)} V` : '--'}</span>
-                            <span>{latestPoint ? `${latestPoint.currentA.toFixed(2)} A` : '--'}</span>
+                            <span>{sensor.isActive ? latestPoint ? `Live packet ${formatClock(latestPoint.timestamp)}` : 'Awaiting first packet' : 'Sensor manually turned off'}</span>
+                            <span>{sensor.isActive && latestPoint ? `${latestPoint.voltageV.toFixed(1)} V` : '--'}</span>
+                            <span>{sensor.isActive && latestPoint ? `${latestPoint.currentA.toFixed(2)} A` : '--'}</span>
                           </div>
 
-                          {sensorModel ? (
+                          {selectedBuilding.claimedByCurrentUser ? (
+                            <div className="sensor-card__actions">
+                              <button
+                                className={`ghost-button ${sensor.isActive ? 'ghost-button--danger' : 'ghost-button--accent'}`}
+                                disabled={sensorToggleBusyId === sensor.id}
+                                onClick={() => void handleSetSensorActive(sensor.id, !sensor.isActive)}
+                                type="button"
+                              >
+                                {sensorToggleBusyId === sensor.id ? sensor.isActive ? 'Turning off...' : 'Turning on...' : sensor.isActive ? 'Turn Off' : 'Turn On'}
+                              </button>
+                            </div>
+                          ) : null}
+
+                          {sensor.isActive && sensorModel ? (
                             <div className="model-box">
                               <div className="model-box__header">
                                 <strong>AI model window</strong>
-                                <span>{formatPercent(sensorModel.confidence)} confidence</span>
+                                <span>{formatPercent(sensorModel.confidence)} prediction strength</span>
                               </div>
                               <div className="sensor-card__metrics sensor-card__metrics--grid">
                                 <span>Anomaly score: {formatPercent(sensorModel.anomalyScore)}</span>
@@ -889,7 +972,7 @@ function App() {
                               <div className="history-strip" aria-label="Recent model input history">
                                 {sensorModel.history.map((point) => (
                                   <div className="history-strip__item" key={point.timestamp}>
-                                    <span className="history-strip__label">{new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <span className="history-strip__label">{formatWindowTick(point.timestamp)}</span>
                                     <span className="history-strip__bar" style={{ height: `${Math.max(16, point.powerMw / Math.max(sensorModel.forecastMw, 0.05) * 72)}px` }} />
                                     <span className="history-strip__value">{point.powerMw.toFixed(3)} MW</span>
                                   </div>
@@ -940,7 +1023,7 @@ async function superviseBuildings(
 ) {
   const compare = await compareNitwNetwork(
     token,
-    nitwReference,
+    filterActiveNetworkPayload(nitwReference),
     readingsPayload && Object.keys(readingsPayload).length
       ? readingsPayload
       : buildReadingsPayload(claimedDevices, nitwReference),
@@ -952,6 +1035,7 @@ function buildReadingsPayload(claimedDevices: DeviceRecord[], nitwReference: Nit
   const claimedByHardwareId = new Map(claimedDevices.filter((d) => !d.nodeKind || d.nodeKind === 'building').map((d) => [d.hardwareId, d]))
   const readings: Record<string, number> = {}
   for (const load of nitwReference.loads) {
+    if (load.is_active === false) continue
     const buildingId = load.building_id ?? `building_${slugify(load.name || load.id || load.bus_id)}`
     const device = claimedByHardwareId.get(hardwareIdForBuildingId(buildingId))
     const sensorId = nitwReference.sensor_links.find((link) => link.element_type === 'load' && link.element_id === load.id)?.sensor_id ?? `sensor_${load.id}`
@@ -993,6 +1077,46 @@ function seedSensorHistory(
   return advanceSensorHistory(nitwReference, readings, currentHistory, timestamp)
 }
 
+function applyLiveTelemetryPacket(
+  nitwReference: NitwReference,
+  packet: Extract<LiveFeedEvent, { type: 'telemetry_packet' }>,
+  currentReadings: Record<string, number>,
+  currentHistory: Record<string, SensorHistoryPoint[]>,
+) {
+  const loadBySensorId = new Map(
+    nitwReference.loads.map((load) => {
+      const sensorId = nitwReference.sensor_links.find((link) => link.element_type === 'load' && link.element_id === load.id)?.sensor_id ?? `sensor_${load.id}`
+      return [sensorId, load] as const
+    }),
+  )
+  const nextReadings = { ...currentReadings }
+  const nextHistory = { ...currentHistory }
+  const packetTimestamp = packet.serverTimestamp || new Date().toISOString()
+
+  for (const update of packet.updates) {
+    const load = loadBySensorId.get(update.sensorId)
+    if (!load || load.is_active === false) continue
+    const powerMw = typeof update.value === 'number' ? update.value : numberOrNull(update.metadata.powerMw) ?? Math.max(load.p_mw, 0.01)
+    nextReadings[update.sensorId] = Number(powerMw.toFixed(4))
+    const currentWindow = nextHistory[update.sensorId] ?? []
+    const nextPoint = buildLiveHistoryPoint(
+      update.sensorId,
+      load.p_mw,
+      powerMw,
+      currentWindow.length,
+      packetTimestamp,
+      update.metadata,
+    )
+    nextHistory[update.sensorId] = [...currentWindow, nextPoint].slice(-SENSOR_HISTORY_LIMIT)
+  }
+
+  return {
+    readings: nextReadings,
+    history: nextHistory,
+    updatedAt: packetTimestamp,
+  }
+}
+
 function advanceSensorHistory(
   nitwReference: NitwReference,
   readings: Record<string, number>,
@@ -1007,6 +1131,7 @@ function advanceSensorHistory(
   const nextHistory: Record<string, SensorHistoryPoint[]> = {}
 
   for (const load of nitwReference.loads) {
+    if (load.is_active === false) continue
     const sensorId = sensorByLoadId.get(load.id) ?? `sensor_${load.id}`
     const currentWindow = currentHistory[sensorId] ?? []
     const powerMw = readings[sensorId] ?? Math.max(load.p_mw, 0.01)
@@ -1015,6 +1140,27 @@ function advanceSensorHistory(
   }
 
   return nextHistory
+}
+
+function buildLiveHistoryPoint(
+  sensorId: string,
+  expectedMw: number,
+  powerMw: number,
+  index: number,
+  timestamp: string,
+  metadata: Record<string, unknown>,
+): SensorHistoryPoint {
+  const voltageV = numberOrNull(metadata.voltageV)
+  const currentA = numberOrNull(metadata.currentA)
+  if (voltageV !== null && currentA !== null) {
+    return {
+      timestamp,
+      powerMw: Number(powerMw.toFixed(4)),
+      voltageV: Number(voltageV.toFixed(1)),
+      currentA: Number(currentA.toFixed(2)),
+    }
+  }
+  return buildSensorHistoryPoint(sensorId, expectedMw, powerMw, index, timestamp)
 }
 
 function buildSensorHistoryPoint(
@@ -1040,46 +1186,6 @@ function buildSensorHistoryPoint(
   }
 }
 
-function simulateRealtimeReadings(
-  nitwReference: NitwReference,
-  currentReadings: Record<string, number>,
-  timestampMs: number,
-) {
-  const sensorByLoadId = new Map(
-    nitwReference.sensor_links
-      .filter((link) => link.element_type === 'load')
-      .map((link) => [link.element_id, link.sensor_id]),
-  )
-  const nextReadings: Record<string, number> = {}
-
-  for (const load of nitwReference.loads) {
-    const sensorId = sensorByLoadId.get(load.id) ?? `sensor_${load.id}`
-    const baseLoad = Math.max(load.p_mw, 0.01)
-    const previous = currentReadings[sensorId]
-    const checksum = stableNumber(load.id)
-    const slowWave = Math.sin(timestampMs / 7000 + checksum / 19)
-    const fastWave = Math.cos(timestampMs / 3200 + checksum / 23)
-    const bias = ((checksum % 11) - 5) * 0.012
-    let nextValue = baseLoad * (1 + bias + slowWave * 0.08 + fastWave * 0.035)
-
-    if (checksum % 9 === 0 && slowWave > 0.82) {
-      nextValue = baseLoad * (1.24 + Math.max(fastWave, -0.1) * 0.1)
-    } else if (checksum % 13 === 0 && fastWave < -0.72) {
-      nextValue = baseLoad * (0.58 + Math.abs(slowWave) * 0.05)
-    } else if (checksum % 17 === 0 && Math.sin(timestampMs / 5100 + checksum / 7) > 0.92) {
-      nextValue = baseLoad * 0.18
-    }
-
-    const smoothedValue = typeof previous === 'number'
-      ? previous * 0.42 + nextValue * 0.58
-      : nextValue
-
-    nextReadings[sensorId] = Number(clamp(smoothedValue, 0.002, Math.max(baseLoad * 1.65, 0.05)).toFixed(4))
-  }
-
-  return nextReadings
-}
-
 function buildNetworkWithDraftBuilding(nitwReference: NitwReference, draftBuilding: DraftBuilding) {
   const name = draftBuilding.name.trim()
   const firstSensorName = draftBuilding.firstSensorName.trim()
@@ -1102,7 +1208,7 @@ function buildNetworkWithDraftBuilding(nitwReference: NitwReference, draftBuildi
       ...nitwReference,
       buildings: [...buildings, { id: buildingId, name, bus_id: busId, lat: draftBuilding.lat, long: draftBuilding.lng, gateway_hardware_id: hardwareIdForBuildingId(buildingId), sensor_count: 1, p_mw: pMw, q_mvar: qMvar }],
       buses: [...nitwReference.buses, { id: busId, name: `Bus ${name}`, vn_kv: vnKv, type: 'b' }],
-      loads: [...nitwReference.loads, { id: loadId, name: firstSensorName, bus_id: busId, building_id: buildingId, sensor_index: 1, p_mw: pMw, q_mvar: qMvar, lat: draftBuilding.lat, long: draftBuilding.lng }],
+      loads: [...nitwReference.loads, { id: loadId, name: firstSensorName, bus_id: busId, building_id: buildingId, sensor_index: 1, is_active: true, p_mw: pMw, q_mvar: qMvar, lat: draftBuilding.lat, long: draftBuilding.lng }],
       sensor_links: [...nitwReference.sensor_links, { sensor_id: sensorId, element_type: 'load', element_id: loadId, measurement: 'p_mw' }],
     },
   }
@@ -1122,8 +1228,34 @@ function buildNetworkWithAddedSensor(nitwReference: NitwReference, building: Cam
   return {
     ...nitwReference,
     buildings: normalizedBuildings(nitwReference),
-    loads: [...nitwReference.loads, { id: loadId, name, bus_id: building.busId, building_id: building.id, sensor_index: sensorIndex, p_mw: pMw, q_mvar: qMvar, lat: building.lat, long: building.lng }],
+    loads: [...nitwReference.loads, { id: loadId, name, bus_id: building.busId, building_id: building.id, sensor_index: sensorIndex, is_active: true, p_mw: pMw, q_mvar: qMvar, lat: building.lat, long: building.lng }],
     sensor_links: [...nitwReference.sensor_links, { sensor_id: sensorId, element_type: 'load', element_id: loadId, measurement: 'p_mw' }],
+  }
+}
+
+function buildNetworkWithSensorActivity(
+  nitwReference: NitwReference,
+  sensorNodeId: string,
+  nextIsActive: boolean,
+): NitwReference {
+  return {
+    ...nitwReference,
+    buildings: normalizedBuildings(nitwReference),
+    loads: nitwReference.loads.map((load) => load.id === sensorNodeId ? { ...load, is_active: nextIsActive } : load),
+  }
+}
+
+function filterActiveNetworkPayload(nitwReference: NitwReference): NitwReference {
+  const activeLoadIds = new Set(
+    nitwReference.loads
+      .filter((load) => load.is_active !== false)
+      .map((load) => load.id),
+  )
+  return {
+    ...nitwReference,
+    buildings: normalizedBuildings(nitwReference),
+    loads: nitwReference.loads.filter((load) => activeLoadIds.has(load.id)),
+    sensor_links: nitwReference.sensor_links.filter((link) => link.element_type !== 'load' || activeLoadIds.has(link.element_id)),
   }
 }
 
@@ -1165,6 +1297,7 @@ function resolveSensorVisualStatus(
   sensor: BuildingSensor,
   sensorModel: SensorModelInsight | undefined,
 ): VisualStatus {
+  if (!sensor.isActive) return 'inactive'
   if (sensor.reviewDecision === 'normal') return 'healthy'
   if (sensor.status === 'unclaimed') return 'unclaimed'
   if (sensor.status === 'deviation') return 'deviation'
@@ -1178,18 +1311,20 @@ function resolveBuildingVisualStatus(
   buildingModel: BuildingModelInsight | undefined,
 ): VisualStatus {
   if (currentStatus === 'unclaimed') return 'unclaimed'
+  if (!sensors.some((sensor) => sensor.isActive)) return 'inactive'
   if (sensors.some((sensor) => sensor.status === 'deviation')) return 'deviation'
   if (buildingModel && buildingModel.highRiskSensorCount > 0 && buildingModel.anomalyScore >= 0.6) return 'deviation'
   return 'healthy'
 }
 
-function fillColor(status: VisualStatus) { return status === 'healthy' ? '#64d7a1' : status === 'deviation' ? '#f09090' : '#7eb6ff' }
-function borderColor(status: VisualStatus) { return status === 'healthy' ? '#17885c' : status === 'deviation' ? '#c44747' : '#2e6bd3' }
-function edgeColor(status: VisualStatus) { return status === 'healthy' ? '#1b9f6e' : status === 'deviation' ? '#d74b4b' : '#2c70d8' }
-function statusLabel(status: VisualStatus) { return status === 'healthy' ? 'Healthy' : status === 'deviation' ? 'Deviation' : 'Unclaimed' }
+function fillColor(status: VisualStatus) { return status === 'healthy' ? '#64d7a1' : status === 'deviation' ? '#f09090' : status === 'inactive' ? '#c2c8cf' : '#7eb6ff' }
+function borderColor(status: VisualStatus) { return status === 'healthy' ? '#17885c' : status === 'deviation' ? '#c44747' : status === 'inactive' ? '#6b7480' : '#2e6bd3' }
+function edgeColor(status: VisualStatus) { return status === 'healthy' ? '#1b9f6e' : status === 'deviation' ? '#d74b4b' : status === 'inactive' ? '#7a828d' : '#2c70d8' }
+function statusLabel(status: VisualStatus) { return status === 'healthy' ? 'Healthy' : status === 'deviation' ? 'Deviation' : status === 'inactive' ? 'Inactive' : 'Unclaimed' }
 
 function comparisonLabel(status: string | null) {
   if (!status) return 'Not run yet'
+  if (status === 'inactive') return 'Turned off'
   if (status === 'topology_issue') return 'Topology issue'
   if (status === 'missing_actual') return 'Missing sensor value'
   if (status === 'missing_expected') return 'Missing simulation value'
@@ -1228,6 +1363,17 @@ function formatClock(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function formatWindowTick(value: string) {
+  return new Date(value).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' })
+}
+
+function formatLiveWindow(windowSize: number, windowStart?: string, windowEnd?: string) {
+  const seconds = windowStart && windowEnd
+    ? Math.max(1, Math.round((new Date(windowEnd).getTime() - new Date(windowStart).getTime()) / 1000))
+    : windowSize
+  return `${windowSize} samples (~${seconds}s)`
+}
+
 function formatRelativeTick(value: string) {
   const deltaSeconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000))
   if (deltaSeconds <= 1) return 'just now'
@@ -1236,7 +1382,7 @@ function formatRelativeTick(value: string) {
 }
 
 function liveSourceLabel(source: 'synthetic-window' | 'live-window') {
-  return source === 'live-window' ? 'Rolling live prediction window' : 'Real-time simulated feed'
+  return source === 'live-window' ? 'WebSocket sensor stream' : 'Bootstrapped last snapshot'
 }
 
 function buildUniqueId(baseId: string, existingIds: string[]) {
@@ -1258,10 +1404,18 @@ function buildNotificationDetail(
   sensorModel: SensorModelInsight,
 ) {
   if (sensorModel.label === 'outage') return `Packet power dropped to ${sensor.currentMw.toFixed(3)} MW and the model sees an outage-like event.`
-  if (sensorModel.label === 'overload') return `Load is climbing toward ${sensorModel.forecastMw.toFixed(3)} MW with ${formatPercent(sensorModel.confidence)} confidence.`
+  if (sensorModel.label === 'overload') return `Load is climbing toward ${sensorModel.forecastMw.toFixed(3)} MW with ${formatPercent(sensorModel.confidence)} prediction strength.`
   if (sensorModel.label === 'undervoltage') return `Voltage trend is softening while the node stays active, so the stream is marked as undervoltage risk.`
   if (sensorModel.label === 'sensor_fault') return 'The recent live packets are oscillating unusually, so the sensor stream may be noisy or unstable.'
   return 'Node remains inside the expected live band.'
+}
+
+function numberOrNull(value: unknown) {
+  return typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() && Number.isFinite(Number(value))
+      ? Number(value)
+      : null
 }
 
 function stableNumber(value: string) {

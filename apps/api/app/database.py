@@ -82,6 +82,14 @@ def claims_collection() -> Collection:
     return get_database()["claims"]
 
 
+def simulated_stream_templates_collection() -> Collection:
+    return get_database()["simulated_stream_templates"]
+
+
+def simulated_sensor_assignments_collection() -> Collection:
+    return get_database()["simulated_sensor_assignments"]
+
+
 def networks_collection() -> Collection:
     return get_database()["networks"]
 
@@ -154,8 +162,13 @@ def initialize_database() -> None:
     db["sold_devices"].create_index([("hardware_id", ASCENDING)], unique=True)
     db["device_commands"].create_index([("command_id", ASCENDING)], unique=True)
     db["sensor_readings"].create_index([("sold_device_id", ASCENDING), ("server_received_at", DESCENDING)])
+    db["sensor_readings"].create_index([("sensor_id", ASCENDING), ("server_received_at", DESCENDING)])
     db["claims"].create_index([("user_id", ASCENDING), ("device_id", ASCENDING)], unique=True)
     db["claims"].create_index([("device_id", ASCENDING)])
+    db["simulated_stream_templates"].create_index([("stream_id", ASCENDING)], unique=True)
+    db["simulated_sensor_assignments"].create_index([("sensor_id", ASCENDING)], unique=True)
+    db["simulated_sensor_assignments"].create_index([("hardware_id", ASCENDING), ("sensor_id", ASCENDING)], unique=True)
+    db["simulated_sensor_assignments"].create_index([("stream_id", ASCENDING)])
     db["networks"].create_index([("network.name", ASCENDING)], unique=True)
     for section_name in NETWORK_COMPONENT_SECTIONS:
         id_field = SECTION_ID_FIELDS[section_name]
@@ -411,6 +424,7 @@ def build_large_nitw_network_payload() -> dict[str, Any]:
                     "bus_id": bus_id,
                     "building_id": building_id,
                     "sensor_index": sensor_index,
+                    "is_active": True,
                     "p_mw": p_mw,
                     "q_mvar": q_mvar,
                     "lat": lat,
@@ -651,6 +665,8 @@ def normalize_network_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
     for section_name in NETWORK_COMPONENT_SECTIONS:
         normalized[section_name] = [dict(item) for item in payload.get(section_name, [])]
+    for load in normalized["loads"]:
+        load["is_active"] = bool(load.get("is_active", True))
 
     _autofill_missing_buildings(normalized)
     _autofill_missing_buses(normalized)
@@ -1001,6 +1017,7 @@ def repair_networks_from_load_devices() -> None:
                     "id": load_id,
                     "name": source_payload.get("name") or device.get("display_name") or load_id,
                     "bus_id": bus_id,
+                    "is_active": True,
                     "p_mw": float(source_payload.get("p_mw", 0.0)),
                     "q_mvar": float(source_payload.get("q_mvar", 0.0)),
                     "lat": source_payload.get("lat", (device.get("location") or {}).get("latitude")),

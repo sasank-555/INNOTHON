@@ -83,6 +83,7 @@ class TelemetryReading(BaseModel):
     value: float
     unit: str
     relayState: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TelemetryPayload(BaseModel):

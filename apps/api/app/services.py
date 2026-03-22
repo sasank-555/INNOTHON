@@ -14,6 +14,7 @@ from app.database import (
     users_collection,
     utc_now,
 )
+from app.live_feed import live_feed_broker
 from app.schemas import (
     DeviceCommandCreateRequest,
     DeviceCommandResponse,
@@ -139,6 +140,7 @@ def ingest_telemetry(
         )
 
     telemetry_docs = []
+    live_updates = []
     for reading in readings:
         manifest_item = manifest_index.get(reading.sensorId, {})
         metadata = {
@@ -155,6 +157,8 @@ def ingest_telemetry(
             metadata["measurement"] = manifest_item["measurement"]
         if manifest_item.get("busId"):
             metadata["busId"] = manifest_item["busId"]
+        if reading.metadata:
+            metadata.update(reading.metadata)
         telemetry_docs.append(
             {
                 "sold_device_id": str(device["_id"]),
@@ -166,6 +170,16 @@ def ingest_telemetry(
                 "esp_timestamp": esp_timestamp.isoformat() if esp_timestamp else None,
                 "server_received_at": received_at,
                 "metadata_json": metadata,
+            }
+        )
+        live_updates.append(
+            {
+                "sensorId": reading.sensorId,
+                "sensorType": reading.sensorType,
+                "value": reading.value,
+                "unit": reading.unit,
+                "relayState": reading.relayState,
+                "metadata": metadata,
             }
         )
     if telemetry_docs:
@@ -180,6 +194,22 @@ def ingest_telemetry(
         device_commands_collection().update_many(
             {"_id": {"$in": [row["_id"] for row in pending_rows]}},
             {"$set": {"status": "sent", "sent_at": received_at}},
+        )
+
+    if live_updates:
+        live_feed_broker.publish(
+            {
+                "type": "telemetry_packet",
+                "hardwareId": hardware_id,
+                "deviceId": str(device["_id"]),
+                "displayName": device.get("display_name"),
+                "networkName": device.get("network_name"),
+                "nodeKind": device.get("node_kind"),
+                "serverTimestamp": received_at,
+                "espTimestamp": esp_timestamp.isoformat() if esp_timestamp else None,
+                "signalStrength": signal_strength,
+                "updates": live_updates,
+            }
         )
 
     return [

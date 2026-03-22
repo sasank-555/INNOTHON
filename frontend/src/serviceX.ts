@@ -77,6 +77,7 @@ export type NitwReference = {
     bus_id: string
     building_id?: string
     sensor_index?: number
+    is_active?: boolean
     p_mw: number
     q_mvar: number
     lat: number
@@ -110,6 +111,57 @@ export type CompareResponse = {
     delta: number | null
     absolute_delta: number | null
     status: string
+  }>
+}
+
+export type LiveFeedEvent =
+  | {
+      type: 'connection_ready'
+      email: string
+      serverTimestamp: string
+    }
+  | {
+      type: 'telemetry_packet'
+      hardwareId: string
+      deviceId: string
+      displayName?: string
+      networkName?: string
+      nodeKind?: string
+      serverTimestamp: string
+      espTimestamp?: string | null
+      signalStrength?: number | null
+      updates: Array<{
+        sensorId: string
+        sensorType: string
+        value: number
+        unit: string
+        relayState?: string | null
+        metadata: Record<string, unknown>
+      }>
+    }
+
+export type TrainingReplayWindow = {
+  status: string
+  source: string
+  dataset_path: string
+  cursor: number
+  next_cursor: number
+  window_size: number
+  window_start: string
+  window_end: string
+  step_seconds: number
+  frame_count: number
+  load_count: number
+  frames: Array<{
+    timestamp: string
+    loads: Array<{
+      load_id: string
+      voltage_v: number
+      current_a: number
+      power_mw: number
+      label: string
+      is_anomaly: number
+    }>
   }>
 }
 
@@ -198,6 +250,18 @@ export function compareNitwNetwork(
   )
 }
 
+export function fetchTrainingReplayWindow(
+  token: string,
+  cursor?: number,
+  windowSize?: number,
+): Promise<TrainingReplayWindow> {
+  const query = new URLSearchParams()
+  if (typeof cursor === 'number') query.set('cursor', String(cursor))
+  if (typeof windowSize === 'number') query.set('window_size', String(windowSize))
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return apiFetch<TrainingReplayWindow>(`/model/training-replay-window${suffix}`, undefined, token)
+}
+
 export function syncNetwork(token: string, networkPayload: NitwReference): Promise<NetworkBundle> {
   return apiFetch<NetworkBundle>(
     '/networks/sync',
@@ -207,4 +271,14 @@ export function syncNetwork(token: string, networkPayload: NitwReference): Promi
     },
     token,
   )
+}
+
+export function openLiveReadingsSocket(token: string): WebSocket {
+  const url = new URL(API_BASE_URL)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const basePath = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname
+  url.pathname = basePath ? `${basePath}/ws/live-readings` : '/ws/live-readings'
+  url.search = ''
+  url.searchParams.set('token', token)
+  return new WebSocket(url.toString())
 }

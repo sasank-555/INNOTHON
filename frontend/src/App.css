@@ -236,6 +236,12 @@
   color: #b43d3d;
 }
 
+.status-inactive,
+.map-badge--inactive {
+  background: rgba(107, 116, 128, 0.14);
+  color: #5f6975;
+}
+
 .detail-list {
   display: grid;
   gap: 0.65rem;
@@ -401,6 +407,11 @@ button.building-row {
   color: #eef8f4;
 }
 
+.ghost-button--danger {
+  background: #7a3232;
+  color: #fff1f1;
+}
+
 .panel-action-row {
   display: flex;
   margin-top: 0.9rem;
@@ -440,6 +451,11 @@ button.building-row {
 .node-preview--unclaimed {
   background: rgba(239, 245, 255, 0.96);
   border-color: rgba(46, 107, 211, 0.18);
+}
+
+.node-preview--inactive {
+  background: rgba(244, 246, 248, 0.96);
+  border-color: rgba(107, 116, 128, 0.18);
 }
 
 .notification-card__header,
@@ -513,6 +529,11 @@ button.building-row {
   border-color: rgba(46, 107, 211, 0.18);
 }
 
+.sensor-card--inactive {
+  background: linear-gradient(180deg, rgba(245, 247, 249, 0.98), rgba(250, 251, 252, 0.94));
+  border-color: rgba(107, 116, 128, 0.18);
+}
+
 .sensor-card--modal {
   min-height: 220px;
 }
@@ -549,6 +570,12 @@ button.building-row {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+.sensor-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.9rem;
+}
+
 .sensor-stream-row {
   margin-top: 0.85rem;
   padding: 0.72rem 0.8rem;
@@ -580,6 +607,12 @@ button.building-row {
 .signal-dot--unclaimed {
   background: #2e6bd3;
   box-shadow: 0 0 0 0 rgba(46, 107, 211, 0.32);
+}
+
+.signal-dot--inactive {
+  background: #7c8794;
+  box-shadow: none;
+  animation: none;
 }
 
 .model-badge {

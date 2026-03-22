@@ -68,7 +68,7 @@ export type ModelInsights = {
 }
 
 const WINDOW_SIZE = 8
-const STEP_MINUTES = 5
+const FALLBACK_STEP_SECONDS = 3
 const POWER_FACTOR = 0.92
 
 export function buildPredictiveInsights(
@@ -138,6 +138,7 @@ function buildSensorInsight(
   const recentAverage = average(recentPoints.map((point) => point.powerMw))
   const trendMw = recentAverage - previousAverage
   const volatilityMw = computeVolatility(history.map((point) => point.powerMw))
+  const expectedMw = Math.max(sensor.expectedMw, 0.01)
   const ratio = sensor.expectedMw > 0 ? currentPoint.powerMw / sensor.expectedMw : 1
   const label = inferLabel(sensor, currentPoint, ratio, trendMw, volatilityMw)
   const anomalyScore = scoreLabel(label, sensor, ratio, trendMw, volatilityMw, currentPoint)
@@ -146,10 +147,21 @@ function buildSensorInsight(
     0,
     Math.max(sensor.expectedMw * 3, 0.05),
   )
+  const historyCoverage = Math.min(history.length / WINDOW_SIZE, 1)
+  const deviationRatio = Math.abs(ratio - 1)
+  const volatilityRatio = volatilityMw / expectedMw
+  const trendRatio = Math.abs(trendMw) / expectedMw
+  const livePulse = (Math.sin(windowEnd.getTime() / 3500 + stableNumber(sensor.id) / 29) + 1) / 2
   const confidence = clamp(
-    0.66 + anomalyScore * 0.24 + Math.min(history.length / WINDOW_SIZE, 1) * 0.06,
-    0.72,
-    0.99,
+    0.56
+      + historyCoverage * 0.12
+      + anomalyScore * 0.16
+      + Math.min(deviationRatio * 0.1, 0.08)
+      + Math.min(volatilityRatio * 0.08, 0.07)
+      + Math.min(trendRatio * 0.06, 0.05)
+      + livePulse * 0.09,
+    0.58,
+    0.97,
   )
 
   return {
@@ -216,7 +228,7 @@ function normalizeHistory(
   const requiredPrefix = WINDOW_SIZE - liveHistory.length
   const prefix = fallbackPoints.slice(0, requiredPrefix).map((point, index) => ({
     ...point,
-    timestamp: new Date(new Date(liveHistory[0].timestamp).getTime() - (requiredPrefix - index) * STEP_MINUTES * 60_000).toISOString(),
+    timestamp: new Date(new Date(liveHistory[0].timestamp).getTime() - (requiredPrefix - index) * FALLBACK_STEP_SECONDS * 1000).toISOString(),
   }))
   return [...prefix, ...liveHistory].slice(-WINDOW_SIZE)
 }
@@ -231,7 +243,7 @@ function buildFallbackHistory(
   const history: SensorHistoryPoint[] = []
 
   for (let index = 0; index < WINDOW_SIZE; index += 1) {
-    const timestamp = new Date(windowEnd.getTime() - (WINDOW_SIZE - 1 - index) * STEP_MINUTES * 60_000)
+    const timestamp = new Date(windowEnd.getTime() - (WINDOW_SIZE - 1 - index) * FALLBACK_STEP_SECONDS * 1000)
     const progress = (index + 1) / WINDOW_SIZE
     const drift = (currentMw - expectedMw) * progress
     const oscillation = expectedMw * (0.015 * Math.sin((checksum % 7) + progress * Math.PI * 2))

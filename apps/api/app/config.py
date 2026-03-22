@@ -31,6 +31,9 @@ class Settings:
         "INNOTHON_MQTT_COMMAND_TOPIC_TEMPLATE",
         "devices/{hardware_id}/commands",
     )
+    simulator_enabled: bool = os.getenv("INNOTHON_SIMULATOR_ENABLED", "false").lower() == "true"
+    simulator_interval_seconds: float = float(os.getenv("INNOTHON_SIMULATOR_INTERVAL_SECONDS", "0.75"))
+    simulator_stream_count: int = int(os.getenv("INNOTHON_SIMULATOR_STREAM_COUNT", "100"))
 
 
 settings = Settings()
