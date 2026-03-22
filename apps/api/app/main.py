@@ -28,7 +28,7 @@ from app.model_runtime import (
 )
 from app.mqtt_service import mqtt_bridge
 from app.notification_service import NotificationEvent, send_notifications
-from app.replay_service import get_training_replay_window
+from app.replay_service import get_training_replay_window, get_training_stream_collection
 from app.sensor_simulator import sensor_simulator
 from app.schemas import (
     AuthResponse,
@@ -258,6 +258,16 @@ def get_model_sample_graph() -> dict:
 def get_model_training_replay_window(cursor: int | None = None, window_size: int = 8) -> dict:
     try:
         return get_training_replay_window(cursor=cursor, window_size=window_size)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+
+@app.get("/model/training-streams")
+def get_model_training_stream_collection(limit: int = 5) -> dict:
+    try:
+        return get_training_stream_collection(limit=limit)
     except FileNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except ValueError as error:

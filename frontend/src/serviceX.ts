@@ -188,6 +188,31 @@ export type TrainingReplayWindow = {
   }>
 }
 
+export type TrainingStreamPoint = {
+  timestamp: string
+  voltage_v: number
+  current_a: number
+  power_mw: number
+  label: string
+  is_anomaly: number
+}
+
+export type TrainingStreamTemplate = {
+  stream_id: string
+  source_load_id: string
+  step_seconds: number
+  point_count: number
+  points: TrainingStreamPoint[]
+}
+
+export type TrainingStreamCollection = {
+  status: string
+  source: string
+  dataset_path: string
+  stream_count: number
+  streams: TrainingStreamTemplate[]
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit, token?: string): Promise<T> {
   const headers = new Headers(init?.headers)
   if (!headers.has('Content-Type') && init?.body) {
@@ -297,6 +322,15 @@ export function fetchTrainingReplayWindow(
   if (typeof windowSize === 'number') query.set('window_size', String(windowSize))
   const suffix = query.size ? `?${query.toString()}` : ''
   return apiFetch<TrainingReplayWindow>(`/model/training-replay-window${suffix}`, undefined, token)
+}
+
+export function fetchTrainingStreamCollection(
+  token: string,
+  limit = 5,
+): Promise<TrainingStreamCollection> {
+  const query = new URLSearchParams()
+  query.set('limit', String(limit))
+  return apiFetch<TrainingStreamCollection>(`/model/training-streams?${query.toString()}`, undefined, token)
 }
 
 export function syncNetwork(token: string, networkPayload: NitwReference): Promise<NetworkBundle> {

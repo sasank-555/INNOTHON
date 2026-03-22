@@ -11,7 +11,13 @@ import {
   type SensorHistoryPoint,
   type SensorModelInsight,
 } from './aiModel'
-import { buildFrontendTelemetryPacket, FRONTEND_SENSOR_INTERVAL_MS } from './sensorSimulation'
+import {
+  buildFrontendTelemetryPacket,
+  createFrontendStreamRuntime,
+  FILE_STREAM_LIMIT,
+  FRONTEND_SENSOR_INTERVAL_MS,
+  type FrontendStreamRuntime,
+} from './sensorSimulation'
 import {
   claimDevice,
   compareNitwNetwork,
@@ -19,6 +25,7 @@ import {
   fetchClaimedDevices,
   fetchInventory,
   fetchNitwReference,
+  fetchTrainingStreamCollection,
   loginUser,
   registerUser,
   syncNetwork,
@@ -26,6 +33,7 @@ import {
   type LiveFeedEvent,
   type NotificationSeverity,
   type NitwReference,
+  type TrainingStreamTemplate,
 } from './serviceX'
 
 type AuthMode = 'login' | 'register'
@@ -115,6 +123,7 @@ function App() {
   const [inventory, setInventory] = useState<DeviceRecord[]>([])
   const [claimedDevices, setClaimedDevices] = useState<DeviceRecord[]>([])
   const [nitwReference, setNitwReference] = useState<NitwReference | null>(null)
+  const [trainingStreams, setTrainingStreams] = useState<TrainingStreamTemplate[]>([])
   const [simulatedReadings, setSimulatedReadings] = useState<Record<string, number>>({})
   const [sensorHistory, setSensorHistory] = useState<Record<string, SensorHistoryPoint[]>>({})
   const [simulationUpdatedAt, setSimulationUpdatedAt] = useState('')
@@ -143,6 +152,7 @@ function App() {
   const sensorHistoryRef = useRef<Record<string, SensorHistoryPoint[]>>({})
   const simulationTickRef = useRef(0)
   const sensorIncidentRef = useRef<Record<string, SensorIncidentState>>({})
+  const streamRuntimeRef = useRef<FrontendStreamRuntime | null>(null)
 
   useEffect(() => {
     if (session) void loadDashboard(session.token, false)
@@ -153,11 +163,14 @@ function App() {
       liveReadingsRef.current = {}
       sensorHistoryRef.current = {}
       simulationTickRef.current = 0
+      streamRuntimeRef.current = null
       setSimulatedReadings({})
       setSensorHistory({})
       setSimulationUpdatedAt('')
       return
     }
+
+    streamRuntimeRef.current = createFrontendStreamRuntime(nitwReference, trainingStreams)
 
     const seededReadings = seedSimulatedReadings(claimedDevices, nitwReference, liveReadingsRef.current)
     const seededAt = new Date().toISOString()
@@ -167,7 +180,7 @@ function App() {
     setSimulatedReadings(seededReadings)
     setSensorHistory(seededHistory)
     setSimulationUpdatedAt(seededAt)
-  }, [claimedDevices, nitwReference])
+  }, [claimedDevices, nitwReference, trainingStreams])
 
   useEffect(() => {
     if (!session || !nitwReference) return
@@ -202,6 +215,7 @@ function App() {
         liveReadingsRef.current,
         simulationTickRef.current,
         new Date().toISOString(),
+        streamRuntimeRef.current,
       )
       const nextState = applyLiveTelemetryPacket(
         nitwReference,
@@ -457,7 +471,12 @@ function App() {
     setPageBusy(true)
     setPageError('')
     try {
-      const [inventoryData, claimedData, nitwData] = await Promise.all([fetchInventory(token), fetchClaimedDevices(token), fetchNitwReference(token)])
+      const [inventoryData, claimedData, nitwData, streamCollection] = await Promise.all([
+        fetchInventory(token),
+        fetchClaimedDevices(token),
+        fetchNitwReference(token),
+        fetchTrainingStreamCollection(token, FILE_STREAM_LIMIT),
+      ])
       const seededAt = simulationUpdatedAt || new Date().toISOString()
       const nextSeededReadings = seedSimulatedReadings(claimedData, nitwData, liveReadingsRef.current)
       const nextSensorHistory = seedSensorHistory(nitwData, nextSeededReadings, sensorHistoryRef.current, seededAt)
@@ -466,6 +485,7 @@ function App() {
       setInventory(inventoryData)
       setClaimedDevices(claimedData)
       setNitwReference(nitwData)
+      setTrainingStreams(streamCollection.streams ?? [])
       setSimulatedReadings(nextSeededReadings)
       setSensorHistory(nextSensorHistory)
       setSimulationUpdatedAt(seededAt)
@@ -681,6 +701,7 @@ function App() {
     setInventory([])
     setClaimedDevices([])
     setNitwReference(null)
+    setTrainingStreams([])
     setSimulatedReadings({})
     setSensorHistory({})
     setSimulationUpdatedAt('')
@@ -697,6 +718,7 @@ function App() {
     sensorHistoryRef.current = {}
     simulationTickRef.current = 0
     sensorIncidentRef.current = {}
+    streamRuntimeRef.current = null
   }
 
   function renderClaimBox(building: CampusBuilding) {
@@ -704,8 +726,8 @@ function App() {
       return (
         <div className="claim-success">
           {supervised
-            ? 'Claimed by you. Frontend sensor packets are running and the supervision simulation is active.'
-            : 'Claimed by you. Frontend sensor packets are running. Run the simulation when you want to supervise the node health.'}
+            ? 'Claimed by you. File-backed sensor packets are running and the supervision simulation is active.'
+            : 'Claimed by you. File-backed sensor packets are running. Run the simulation when you want to supervise the node health.'}
         </div>
       )
     }
@@ -833,7 +855,7 @@ function App() {
         <div>
           <p className="kicker">NITW Building Control</p>
           <h1>Claim buildings and watch live sensor node health</h1>
-          <p className="header-copy">Signed in as {session.email}. Blue means unclaimed, and claimed nodes switch live between green, orange, and red from the frontend sensor simulator plus AI.</p>
+          <p className="header-copy">Signed in as {session.email}. Blue means unclaimed, and claimed nodes switch live between green, orange, and red from 5 file-backed streams plus AI.</p>
         </div>
         <div className="header-actions">
           <div className="header-stats">
@@ -937,7 +959,8 @@ function App() {
           <article className="panel panel--summary">
             <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
-            <div className="metric"><span>Stream mode</span><strong>{pageBusy ? 'Refreshing packets...' : supervised ? 'Frontend packets + simulation' : 'Frontend packets only'}</strong></div>
+            <div className="metric"><span>Stream mode</span><strong>{pageBusy ? 'Refreshing packets...' : supervised ? 'CSV packets + simulation' : 'CSV packets only'}</strong></div>
+            <div className="metric"><span>Data collection</span><strong>{trainingStreams.length ? `${trainingStreams.length} file streams` : 'Synthetic fallback'}</strong></div>
             <div className="metric"><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
             <div className="metric"><span>AI source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
             <div className="metric"><span>Last sensor tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
@@ -954,7 +977,7 @@ function App() {
                 </div>
               ))}
             </div>
-            <p className="legend-copy">Node colors update in real time from the AI prediction window fed by the frontend sensor simulator. Use Simulate Supervision when you want to replay the operator supervision view.</p>
+            <p className="legend-copy">Node colors update in real time from the AI prediction window fed by the file stream collection. Use Simulate Supervision when you want to replay the operator supervision view.</p>
           </article>
 
           <article className="panel panel--alerts">

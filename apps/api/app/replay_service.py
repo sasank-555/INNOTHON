@@ -96,6 +96,18 @@ def get_training_replay_window(cursor: int | None = None, window_size: int = 8) 
     }
 
 
+def get_training_stream_collection(limit: int = 5) -> dict[str, Any]:
+    streams = get_training_load_stream_templates(limit=limit)
+    dataset = _load_training_replay()
+    return {
+        "status": "ok",
+        "source": "gnn-file-stream-collection",
+        "dataset_path": dataset["dataset_path"],
+        "stream_count": len(streams),
+        "streams": streams,
+    }
+
+
 @lru_cache(maxsize=4)
 def get_training_load_stream_templates(limit: int | None = None) -> list[dict[str, Any]]:
     dataset = _load_training_replay()
