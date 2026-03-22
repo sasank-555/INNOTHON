@@ -27,6 +27,10 @@ class Settings:
     mqtt_keepalive: int = int(os.getenv("INNOTHON_MQTT_KEEPALIVE", "60"))
     mqtt_client_id: str = os.getenv("INNOTHON_MQTT_CLIENT_ID", "innothon-backend")
     mqtt_telemetry_topic: str = os.getenv("INNOTHON_MQTT_TELEMETRY_TOPIC", "devices/+/telemetry")
+    mqtt_device_telemetry_topic_template: str = os.getenv(
+        "INNOTHON_MQTT_DEVICE_TELEMETRY_TOPIC_TEMPLATE",
+        "devices/{hardware_id}/telemetry",
+    )
     mqtt_command_topic_template: str = os.getenv(
         "INNOTHON_MQTT_COMMAND_TOPIC_TEMPLATE",
         "devices/{hardware_id}/commands",

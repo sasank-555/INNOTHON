@@ -11,6 +11,7 @@ import {
   type SensorHistoryPoint,
   type SensorModelInsight,
 } from './aiModel'
+import { USE_FILE_STREAM_COLLECTION } from './demoConfig'
 import {
   buildFrontendTelemetryPacket,
   createFrontendStreamRuntime,
@@ -33,6 +34,7 @@ import {
   type LiveFeedEvent,
   type NotificationSeverity,
   type NitwReference,
+  type TrainingStreamCollection,
   type TrainingStreamTemplate,
 } from './serviceX'
 
@@ -153,6 +155,27 @@ function App() {
   const simulationTickRef = useRef(0)
   const sensorIncidentRef = useRef<Record<string, SensorIncidentState>>({})
   const streamRuntimeRef = useRef<FrontendStreamRuntime | null>(null)
+  const streamModeHeadline = USE_FILE_STREAM_COLLECTION ? `${FILE_STREAM_LIMIT} file-backed streams plus AI` : 'browser memory simulation plus AI'
+  const streamModeMetric = pageBusy
+    ? 'Refreshing packets...'
+    : supervised
+      ? `${USE_FILE_STREAM_COLLECTION ? 'CSV packets' : 'Memory packets'} + simulation`
+      : `${USE_FILE_STREAM_COLLECTION ? 'CSV packets' : 'Memory packets'} only`
+  const dataCollectionMetric = USE_FILE_STREAM_COLLECTION
+    ? trainingStreams.length
+      ? `${trainingStreams.length} file streams`
+      : 'Waiting for file streams'
+    : 'Synthetic memory only'
+  const legendCopy = USE_FILE_STREAM_COLLECTION
+    ? 'Node colors update in real time from the AI prediction window fed by the file stream collection. Use Simulate Supervision when you want to replay the operator supervision view.'
+    : 'Node colors update in real time from the AI prediction window fed by the browser memory simulator. Use Simulate Supervision when you want to replay the operator supervision view.'
+  const claimedModeCopy = supervised
+    ? USE_FILE_STREAM_COLLECTION
+      ? 'Claimed by you. File-backed sensor packets are running and the supervision simulation is active.'
+      : 'Claimed by you. Memory-backed sensor packets are running and the supervision simulation is active.'
+    : USE_FILE_STREAM_COLLECTION
+      ? 'Claimed by you. File-backed sensor packets are running. Run the simulation when you want to supervise the node health.'
+      : 'Claimed by you. Memory-backed sensor packets are running. Run the simulation when you want to supervise the node health.'
 
   useEffect(() => {
     if (session) void loadDashboard(session.token, false)
@@ -170,7 +193,7 @@ function App() {
       return
     }
 
-    streamRuntimeRef.current = createFrontendStreamRuntime(nitwReference, trainingStreams)
+    streamRuntimeRef.current = USE_FILE_STREAM_COLLECTION ? createFrontendStreamRuntime(nitwReference, trainingStreams) : null
 
     const seededReadings = seedSimulatedReadings(claimedDevices, nitwReference, liveReadingsRef.current)
     const seededAt = new Date().toISOString()
@@ -471,11 +494,20 @@ function App() {
     setPageBusy(true)
     setPageError('')
     try {
+      const streamCollectionPromise: Promise<TrainingStreamCollection> = USE_FILE_STREAM_COLLECTION
+        ? fetchTrainingStreamCollection(token, FILE_STREAM_LIMIT)
+        : Promise.resolve({
+            status: 'disabled',
+            source: 'frontend-memory',
+            dataset_path: '',
+            stream_count: 0,
+            streams: [],
+          })
       const [inventoryData, claimedData, nitwData, streamCollection] = await Promise.all([
         fetchInventory(token),
         fetchClaimedDevices(token),
         fetchNitwReference(token),
-        fetchTrainingStreamCollection(token, FILE_STREAM_LIMIT),
+        streamCollectionPromise,
       ])
       const seededAt = simulationUpdatedAt || new Date().toISOString()
       const nextSeededReadings = seedSimulatedReadings(claimedData, nitwData, liveReadingsRef.current)
@@ -725,9 +757,7 @@ function App() {
     if (building.claimedByCurrentUser) {
       return (
         <div className="claim-success">
-          {supervised
-            ? 'Claimed by you. File-backed sensor packets are running and the supervision simulation is active.'
-            : 'Claimed by you. File-backed sensor packets are running. Run the simulation when you want to supervise the node health.'}
+          {claimedModeCopy}
         </div>
       )
     }
@@ -855,7 +885,7 @@ function App() {
         <div>
           <p className="kicker">NITW Building Control</p>
           <h1>Claim buildings and watch live sensor node health</h1>
-          <p className="header-copy">Signed in as {session.email}. Blue means unclaimed, and claimed nodes switch live between green, orange, and red from 5 file-backed streams plus AI.</p>
+          <p className="header-copy">Signed in as {session.email}. Blue means unclaimed, and claimed nodes switch live between green, orange, and red from {streamModeHeadline}.</p>
         </div>
         <div className="header-actions">
           <div className="header-stats">
@@ -959,8 +989,8 @@ function App() {
           <article className="panel panel--summary">
             <div className="metric"><span>Total buildings</span><strong>{buildings.length}</strong></div>
             <div className="metric"><span>Total internal sensors</span><strong>{stats.sensors}</strong></div>
-            <div className="metric"><span>Stream mode</span><strong>{pageBusy ? 'Refreshing packets...' : supervised ? 'CSV packets + simulation' : 'CSV packets only'}</strong></div>
-            <div className="metric"><span>Data collection</span><strong>{trainingStreams.length ? `${trainingStreams.length} file streams` : 'Synthetic fallback'}</strong></div>
+            <div className="metric"><span>Stream mode</span><strong>{streamModeMetric}</strong></div>
+            <div className="metric"><span>Data collection</span><strong>{dataCollectionMetric}</strong></div>
             <div className="metric"><span>AI window</span><strong>{formatLiveWindow(modelInsights.summary.windowSize, modelInsights.summary.windowStart, modelInsights.summary.windowEnd)}</strong></div>
             <div className="metric"><span>AI source</span><strong>{liveSourceLabel(modelInsights.summary.source)}</strong></div>
             <div className="metric"><span>Last sensor tick</span><strong>{simulationUpdatedAt ? formatClock(simulationUpdatedAt) : '--'}</strong></div>
@@ -977,7 +1007,7 @@ function App() {
                 </div>
               ))}
             </div>
-            <p className="legend-copy">Node colors update in real time from the AI prediction window fed by the file stream collection. Use Simulate Supervision when you want to replay the operator supervision view.</p>
+            <p className="legend-copy">{legendCopy}</p>
           </article>
 
           <article className="panel panel--alerts">
